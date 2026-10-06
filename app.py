@@ -207,7 +207,7 @@ def register():
         confirm_password = request.form.get('confirm_password', '')
         role = request.form.get('role', 'recruiter').strip().lower()
 
-        if role not in ('admin', 'recruiter', 'viewer'):
+        if role not in ('admin', 'recruiter', 'viewer', 'applicant'):
             role = 'recruiter'
 
         if not full_name or not email or not password:
@@ -260,10 +260,16 @@ def logout():
 @app.route('/dashboard')
 @login_required
 def dashboard():
+    user_role = session.get('user_role', 'recruiter')
+    if user_role == 'applicant':
+        return render_template(
+            'applicant_dashboard.html',
+            user_name=session.get('user_name', 'User')
+        )
     return render_template(
         'dashboard.html',
         user_name=session.get('user_name', 'User'),
-        user_role=session.get('user_role', 'recruiter')
+        user_role=user_role
     )
 
 

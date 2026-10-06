@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Applicant Dashboard | ResuMetrics</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+  <style>
+    .result-banner { padding: 20px; border-radius: 8px; margin-top: 20px; text-align: center; }
+    .banner-success { background-color: rgba(27, 127, 58, 0.2); border: 1px solid var(--success); }
+    .banner-warning { background-color: rgba(212, 160, 23, 0.2); border: 1px solid var(--warning); }
+    .suggestion-box { background: rgba(22, 22, 31, 0.8); padding: 15px; margin-top: 15px; border-radius: 8px; border-left: 4px solid var(--warning); }
+  </style>
+</head>
+<body class="dashboard-body">
+
+<header class="app-header">
+  <div class="header-orb header-orb-1"></div>
+  <div class="brand">
+    <span class="brand-mark">R</span>
+    <div>
+      <h1>ResuMetrics</h1>
+      <p>Applicant Self-Evaluation Dashboard</p>
+    </div>
+    <div class="header-actions">
+      <div class="user-badge" id="user-badge">
+        <div class="user-avatar">{{ user_name[0] | upper }}</div>
+        <div class="user-info">
+          <span class="user-name">{{ user_name }}</span>
+          <span class="user-role-tag">APPLICANT</span>
+        </div>
+      </div>
+      <a href="{{ url_for('logout') }}" class="logout-btn">Sign Out</a>
+    </div>
+  </div>
+</header>
+
+<main class="container">
+  <section class="panel input-panel">
+    <h2>Apply & Evaluate Resume</h2>
+    <p style="color: var(--text-muted); margin-bottom: 20px;">Upload your resume and paste the job description to see if you meet the criteria and get AI suggestions to enhance your resume.</p>
+    
+    <label for="job-description" class="field-label">Job Description</label>
+    <textarea id="job-description" placeholder="Paste the full job description here..." rows="6"></textarea>
+
+    <h2 style="margin-top: 20px;">Upload Your Resume</h2>
+    <div id="applicant-dropzone" class="dropzone">
+      <input type="file" id="applicant-resume" accept=".pdf,.docx" hidden>
+      <div class="dropzone-content">
+        <p>Drag & drop your resume here, or <span class="highlight">browse</span></p>
+      </div>
+    </div>
+    <div id="file-list" class="file-list"></div>
+
+    <button id="evaluate-btn" class="primary-btn" style="width: 100%; margin-top: 20px; justify-content: center;">
+      Evaluate My Resume
+    </button>
+  </section>
+
+  <section id="results-panel" class="panel" style="display: none; margin-top: 20px;">
+    <h2>Evaluation Results</h2>
+    <div id="evaluation-content"></div>
+  </section>
+</main>
+
+<script>
+  const dropzone = document.getElementById('applicant-dropzone');
+  const fileInput = document.getElementById('applicant-resume');
+  const fileList = document.getElementById('file-list');
+  const evaluateBtn = document.getElementById('evaluate-btn');
+  let uploadedFile = null;
+
+  dropzone.addEventListener('click', () => fileInput.click());
+
+  fileInput.addEventListener('change', (e) => {
+    if (e.target.files.length > 0) {
+      uploadedFile = e.target.files[0];
+      fileList.innerHTML = `<div class="file-item">
+        <span class="file-name">${uploadedFile.name}</span>
+        <button class="remove-btn" onclick="uploadedFile=null; fileList.innerHTML='';">✕</button>
+      </div>`;
+    }
+  });
+
+  evaluateBtn.addEventListener('click', async () => {
+    const jobDescription = document.getElementById('job-description').value;
+    if (!uploadedFile) {
+      alert("Please upload your resume.");
+      return;
+    }
+    if (!jobDescription.trim()) {
+      alert("Please provide the job description.");
+      return;
+    }
+
+    evaluateBtn.disabled = true;
+    evaluateBtn.textContent = 'Analyzing...';
+    document.getElementById('results-panel').style.display = 'none';
+
+    const formData = new FormData();
+    formData.append('resumes', uploadedFile);
+    formData.append('skills', jobDescription);
+    
+    try {
+      const response = await fetch('/analyze', {
+        method: 'POST',
+        body: formData
+      });
+      const data = await response.json();
+      
+      if (data.error) {
+        alert("Error: " + data.error);
+        return;
+      }
+      
+      const candidate = data.candidates[0];
+      if (!candidate) {
+        alert("Failed to analyze resume.");
+        return;
+      }
+      
+      renderResults(candidate);
+    } catch (err) {
+      alert("An error occurred during evaluation.");
+      console.error(err);
+    } finally {
+      evaluateBtn.disabled = false;
+      evaluateBtn.textContent = 'Evaluate My Resume';
+    }
+  });
+
+  function renderResults(candidate) {
+    const resultsPanel = document.getElementById('results-panel');
+    const content = document.getElementById('evaluation-content');
+    
+    const score = candidate.score;
+    const isSelected = score >= 60; // 60 is an arbitrary selection threshold
+    
+    let html = `
+      <div class="result-banner ${isSelected ? 'banner-success' : 'banner-warning'}">
+        <h3 style="margin-bottom: 10px;">${isSelected ? '🎉 You are Selected!' : '⚠️ Not Selected'}</h3>
+        <p>Your Match Score: <strong>${score}%</strong></p>
+        <p>${isSelected ? 'Your resume is a strong fit for this role.' : 'Your resume needs some enhancement to match this job description.'}</p>
+      </div>
+    `;
+
+    if (!isSelected) {
+      html += `
+        <div class="suggestion-box">
+          <h4>How to Enhance Your Resume</h4>
+          <p style="margin-bottom: 10px; color: var(--text-muted);">To improve your chances, consider updating your resume with the following skills based on the job description:</p>
+          <ul style="margin-left: 20px; list-style-type: disc;">
+            ${candidate.missing_skills.length > 0 
+              ? candidate.missing_skills.map(skill => `<li><strong>${skill}</strong></li>`).join('') 
+              : '<li>No specific missing skills detected, but try adding more quantifiable metrics to your experience.</li>'}
+          </ul>
+          <p style="margin-top: 15px; font-size: 0.9rem;"><em>Tip: Ensure you actually have experience with these skills before adding them. Incorporate them into your experience bullets rather than just listing them.</em></p>
+        </div>
+      `;
+    } else {
+       html += `
+        <div class="suggestion-box" style="border-left-color: var(--success);">
+          <h4>Matched Skills</h4>
+          <p style="margin-bottom: 10px; color: var(--text-muted);">Great job highlighting these key skills:</p>
+          <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+            ${candidate.matched_skills.map(s => `<span class="skill-tag skill-matched">${s}</span>`).join('')}
+          </div>
+        </div>
+      `;
+    }
+
+    content.innerHTML = html;
+    resultsPanel.style.display = 'block';
+    resultsPanel.scrollIntoView({ behavior: 'smooth' });
+  }
+</script>
+</body>
+</html>
