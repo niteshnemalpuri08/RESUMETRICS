@@ -1,4 +1,6 @@
 Flask
+Werkzeug
+pymysql
 pdfplumber
 pypdf
 python-docx

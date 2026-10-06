@@ -42,10 +42,10 @@ app.secret_key = os.environ.get('SECRET_KEY', 'resumetrics-secret-key-change-in-
 # ---------------------------------------------------------------------------
 # MySQL Database Configuration & Initialization
 # ---------------------------------------------------------------------------
-MYSQL_HOST = 'localhost'
-MYSQL_USER = 'root'
-MYSQL_PASSWORD = 'nitesh123'
-MYSQL_DB = 'resumetrics'
+MYSQL_HOST = os.environ.get('MYSQL_HOST', 'localhost')
+MYSQL_USER = os.environ.get('MYSQL_USER', 'root')
+MYSQL_PASSWORD = os.environ.get('MYSQL_PASSWORD', 'nitesh123')
+MYSQL_DB = os.environ.get('MYSQL_DB', 'resumetrics')
 
 def get_db_connection():
     return pymysql.connect(
@@ -57,12 +57,13 @@ def get_db_connection():
 
 def init_db():
     try:
-        # Create database if it doesn't exist
-        conn = pymysql.connect(host=MYSQL_HOST, user=MYSQL_USER, password=MYSQL_PASSWORD)
-        cursor = conn.cursor()
-        cursor.execute(f"CREATE DATABASE IF NOT EXISTS {MYSQL_DB}")
-        conn.commit()
-        conn.close()
+        # Create database if it doesn't exist (only locally, not on serverless)
+        if not os.environ.get('VERCEL'):
+            conn = pymysql.connect(host=MYSQL_HOST, user=MYSQL_USER, password=MYSQL_PASSWORD)
+            cursor = conn.cursor()
+            cursor.execute(f"CREATE DATABASE IF NOT EXISTS {MYSQL_DB}")
+            conn.commit()
+            conn.close()
 
         # Connect and create tables
         conn = get_db_connection()
@@ -103,7 +104,8 @@ init_db()
 # ---------------------------------------------------------------------------
 # Background Non-Blocking AI Pre-Warming
 # ---------------------------------------------------------------------------
-threading.Thread(target=warmup_semantic_model, daemon=True, name="AI-Model-Prewarmer").start()
+if not os.environ.get('VERCEL'):
+    threading.Thread(target=warmup_semantic_model, daemon=True, name="AI-Model-Prewarmer").start()
 
 LAST_REPORT = {
     "job_skills_input": "",
