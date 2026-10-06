@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="ResuMetrics — AI-powered hybrid resume screening and candidate matching platform using TF-IDF, skill matching, and semantic analysis.">
+  <title>ResuMetrics | AI Resume Screening</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+
+<header class="app-header">
+  <div class="brand">
+    <span class="brand-mark">R</span>
+    <div>
+      <h1>ResuMetrics</h1>
+      <p>AI-Powered Hybrid Resume Screening &amp; Candidate Matching</p>
+    </div>
+  </div>
+</header>
+
+<main class="container">
+
+  <!-- INPUT PANEL -->
+  <section class="panel input-panel">
+    <h2>Job Requirements</h2>
+    <label for="skills-input" class="field-label">
+      Paste job description or comma-separated required skills
+    </label>
+    <textarea id="skills-input" placeholder="e.g. Python, Flask, Machine Learning, SQL, Docker..." rows="6"></textarea>
+    <div style="margin-top: 8px;">
+      <button type="button" id="optimize-jd-btn" class="secondary-btn" style="font-size: 0.85rem; padding: 4px 8px;">Optimize JD & Suggest Skills</button>
+      <div id="jd-suggestions" style="margin-top: 8px; font-size: 0.85rem; color: #1B7F3A;" hidden></div>
+    </div>
+
+    <h2>Dynamic Weight Controls</h2>
+    <div class="weight-controls-box">
+      <div class="weight-control">
+        <label for="w-tfidf">
+          Keyword (TF-IDF) Weight
+          <span id="w-tfidf-val" class="weight-value">40%</span>
+        </label>
+        <input type="range" id="w-tfidf" min="0" max="100" value="40">
+      </div>
+      <div class="weight-control">
+        <label for="w-skill">
+          Explicit Skill Match Weight
+          <span id="w-skill-val" class="weight-value">35%</span>
+        </label>
+        <input type="range" id="w-skill" min="0" max="100" value="35">
+      </div>
+      <div class="weight-control">
+        <label for="w-dense">
+          Semantic Vector Weight
+          <span id="w-dense-val" class="weight-value">25%</span>
+        </label>
+        <input type="range" id="w-dense" min="0" max="100" value="25">
+      </div>
+    </div>
+
+    <div style="margin-top: 20px; display: flex; align-items: center; gap: 8px;">
+      <input type="checkbox" id="blind-mode-toggle" style="width: 16px; height: 16px;">
+      <label for="blind-mode-toggle" style="font-weight: 600; font-size: 0.95rem;">Enable Blind Screening (Redact PII)</label>
+    </div>
+
+    <h2>Upload Resumes</h2>
+    <div id="dropzone" class="dropzone">
+      <input type="file" id="file-input" multiple accept=".pdf,.docx" hidden>
+      <div class="dropzone-content">
+        <svg class="upload-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M12 16V4M12 4L7 9M12 4L17 9" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+          <path d="M4 16V18C4 19.1046 4.89543 20 6 20H18C19.1046 20 20 19.1046 20 18V16" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        <p><strong>Drag &amp; drop</strong> resumes here, or click to browse</p>
+        <p class="hint">Supports PDF and DOCX &middot; multiple files allowed</p>
+      </div>
+    </div>
+
+    <ul id="file-list" class="file-list"></ul>
+
+    <button id="analyze-btn" class="primary-btn" disabled>
+      <span class="btn-label">Analyze Candidates</span>
+      <span class="spinner" hidden></span>
+    </button>
+
+    <p id="form-error" class="form-error" hidden></p>
+  </section>
+
+  <!-- RESULTS PANEL -->
+  <section class="panel results-panel">
+    <div class="results-header">
+      <h2>Candidate Rankings</h2>
+      <div class="export-btn-group">
+        <button id="export-btn" class="secondary-btn" hidden>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+          Export PDF
+        </button>
+        <button id="export-csv-btn" class="secondary-btn" hidden>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v18M3 12h18"/><rect x="3" y="3" width="18" height="18" rx="2"/></svg>
+          Export CSV
+        </button>
+        <button id="analytics-btn" class="secondary-btn" hidden>
+          📊 Analytics
+        </button>
+        <button id="chat-btn" class="secondary-btn" hidden>
+          💬 Ask AI
+        </button>
+      </div>
+    </div>
+
+    <!-- Analytics Modal -->
+    <div id="analytics-panel" style="display:none; padding: 15px; background: #f8f9fa; border-radius: 8px; margin-bottom: 20px; border: 1px solid #e2e8f0;">
+      <h3 style="margin-top:0;">Advanced Analytics Dashboard</h3>
+      <div id="analytics-content" style="font-size: 0.9rem;"></div>
+    </div>
+
+    <!-- Chat Modal -->
+    <div id="chat-panel" style="display:none; padding: 15px; background: #f8f9fa; border-radius: 8px; margin-bottom: 20px; border: 1px solid #e2e8f0;">
+      <h3 style="margin-top:0;">Ask AI about Candidates</h3>
+      <input type="text" id="chat-input" placeholder="e.g. Who has the most AWS experience?" style="width: 100%; padding: 8px; margin-bottom: 10px; border: 1px solid #cbd5e1; border-radius: 4px;">
+      <button id="chat-submit-btn" class="primary-btn" style="padding: 6px 12px; font-size: 0.9rem;">Ask</button>
+      <div id="chat-result" style="margin-top: 10px; font-size: 0.9rem; font-weight: 500; color: #1e293b;"></div>
+    </div>
+
+    <div id="empty-state" class="empty-state">
+      <svg class="empty-state-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="2" y="3" width="20" height="18" rx="3"/>
+        <path d="M8 7h8M8 11h5M8 15h7"/>
+        <circle cx="18" cy="18" r="4" fill="currentColor" opacity="0.08"/>
+        <path d="M16.5 17l1.5 1.5L19.5 17" stroke-width="1.5"/>
+      </svg>
+      <p>Upload resumes and job requirements, then click <strong>Analyze Candidates</strong> to see rankings.</p>
+    </div>
+
+    <div id="skipped-files" class="skipped-files" hidden></div>
+
+    <div id="results-list" class="results-list"></div>
+  </section>
+
+</main>
+
+<template id="candidate-card-template">
+  <article class="candidate-card">
+    <div class="candidate-card-top">
+      <div class="gauge-wrap">
+        <svg class="gauge" viewBox="0 0 120 120">
+          <circle class="gauge-track" cx="60" cy="60" r="52"></circle>
+          <circle class="gauge-fill" cx="60" cy="60" r="52"></circle>
+        </svg>
+        <span class="gauge-value">0%</span>
+      </div>
+      <div class="candidate-meta">
+        <h3 class="candidate-name"></h3>
+        <p class="candidate-email"></p>
+        <p class="candidate-phone"></p>
+      </div>
+      <span class="rank-badge">#1</span>
+    </div>
+
+    <!-- Score Breakdown Bars -->
+    <div class="score-breakdown">
+      <div class="score-bar-item">
+        <div class="score-bar-label">
+          TF-IDF
+          <span class="score-bar-value tfidf-value">0%</span>
+        </div>
+        <div class="score-bar-track">
+          <div class="score-bar-fill tfidf"></div>
+        </div>
+      </div>
+      <div class="score-bar-item">
+        <div class="score-bar-label">
+          Skill Match
+          <span class="score-bar-value skill-value">0%</span>
+        </div>
+        <div class="score-bar-track">
+          <div class="score-bar-fill skill"></div>
+        </div>
+      </div>
+      <div class="score-bar-item">
+        <div class="score-bar-label">
+          Semantic
+          <span class="score-bar-value dense-value">0%</span>
+        </div>
+        <div class="score-bar-track">
+          <div class="score-bar-fill dense"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="skills-section">
+      <div class="skills-group">
+        <h4>Matched Skills</h4>
+        <div class="badge-list matched-skills"></div>
+      </div>
+      <div class="skills-group">
+        <h4>Missing Skills</h4>
+        <div class="badge-list missing-skills"></div>
+      </div>
+    </div>
+    
+    <div class="ai-insights-section" style="margin-top: 15px; padding-top: 15px; border-top: 1px solid #eee;">
+      <h4>AI TL;DR Summary</h4>
+      <p class="tldr-summary" style="font-size: 0.9rem; color: #444; margin-bottom: 12px;"></p>
+      
+      <h4>Recommended Interview Questions</h4>
+      <ul class="interview-questions" style="font-size: 0.85rem; color: #444; padding-left: 20px;"></ul>
+      
+      <h4>Automated Outreach Draft</h4>
+      <textarea class="outreach-email" rows="4" style="width: 100%; font-size: 0.85rem; padding: 8px; margin-top: 8px; border: 1px solid #e2e8f0; border-radius: 4px; background: #f8fafc;" readonly></textarea>
+      
+      <div style="display: flex; gap: 20px; margin-top: 15px;">
+        <div style="flex: 1;">
+          <h4>Soft Skills Profile</h4>
+          <ul class="soft-skills-profile" style="font-size: 0.85rem; margin: 0; padding-left: 20px;"></ul>
+        </div>
+        <div style="flex: 1;">
+          <h4>Career Velocity</h4>
+          <p class="career-velocity" style="font-size: 0.85rem; margin: 0; color: #444;"></p>
+        </div>
+      </div>
+    </div>
+  </article>
+</template>
+
+<script src="{{ url_for('static', filename='js/main.js') }}"></script>
+</body>
+</html>

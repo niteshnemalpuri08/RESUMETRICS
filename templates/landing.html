@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ResuMetrics | Technical Recruiting Software</title>
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='80' font-size='80'>R</text></svg>">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+  <style>
+    /* Specific Landing Page Overrides */
+    body {
+      display: flex;
+      flex-direction: column;
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+    
+    .landing-nav {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 24px 48px;
+      backdrop-filter: blur(20px);
+      background: rgba(22, 22, 31, 0.5);
+      border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+    
+    .landing-nav .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    
+    .landing-nav .nav-links {
+      display: flex;
+      gap: 20px;
+      align-items: center;
+    }
+    
+    .hero-section {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      text-align: center;
+      padding: 100px 20px;
+      position: relative;
+    }
+    
+    .hero-title {
+      font-family: var(--font-heading);
+      font-size: 4rem;
+      font-weight: 800;
+      line-height: 1.1;
+      margin-bottom: 24px;
+      background: linear-gradient(135deg, #fff 0%, var(--accent) 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      max-width: 900px;
+    }
+    
+    .hero-subtitle {
+      font-size: 1.2rem;
+      color: var(--text-muted);
+      max-width: 600px;
+      margin-bottom: 40px;
+      line-height: 1.6;
+    }
+    
+    .features-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 24px;
+      max-width: 1100px;
+      width: 100%;
+      margin: 60px auto;
+      padding: 0 20px;
+    }
+    
+    .feature-card {
+      background: rgba(22, 22, 31, 0.6);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: var(--radius-xl);
+      padding: 32px;
+      text-align: left;
+      transition: transform 0.3s ease, box-shadow 0.3s ease;
+    }
+    
+    .feature-card:hover {
+      transform: translateY(-5px);
+      box-shadow: 0 10px 30px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.1);
+      border-color: var(--accent-glow);
+    }
+    
+    .feature-icon {
+      font-size: 2rem;
+      margin-bottom: 16px;
+    }
+    
+    .feature-card h3 {
+      font-family: var(--font-heading);
+      font-size: 1.2rem;
+      margin: 0 0 12px 0;
+      color: var(--text);
+    }
+    
+    .feature-card p {
+      color: var(--text-muted);
+      font-size: 0.95rem;
+      line-height: 1.5;
+      margin: 0;
+    }
+    
+    .cta-btn {
+      padding: 16px 40px;
+      font-size: 1.1rem;
+      border-radius: 4px;
+    }
+    
+    .landing-footer {
+      border-top: 1px solid rgba(255, 255, 255, 0.1);
+      padding: 24px;
+      text-align: center;
+      margin-top: auto;
+      font-size: 0.85rem;
+      color: var(--text-muted);
+      display: flex;
+      justify-content: center;
+      gap: 20px;
+    }
+    .landing-footer a {
+      color: var(--text-muted);
+      text-decoration: none;
+    }
+    .landing-footer a:hover {
+      text-decoration: underline;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Background Orbs -->
+  <div class="auth-orb auth-orb-1"></div>
+  <div class="auth-orb auth-orb-2"></div>
+
+  <nav class="landing-nav">
+    <div class="brand">
+      <span class="brand-mark">R</span>
+      <h1 style="font-size: 1.5rem; margin: 0;">ResuMetrics</h1>
+    </div>
+    <div class="nav-links">
+      <a href="{{ url_for('login') }}" class="secondary-btn" style="border: none; background: transparent;">Login</a>
+      <a href="{{ url_for('register') }}" class="primary-btn" style="margin: 0; padding: 10px 24px; border-radius: 4px;">Get Started</a>
+    </div>
+  </nav>
+
+  <section class="hero-section">
+    <h1 class="hero-title">Automated Resume Screening Software</h1>
+    <p class="hero-subtitle">
+      Parse applicant data, match skills, and calculate salary expectations directly from uploaded documents.
+    </p>
+    <div>
+      <a href="{{ url_for('register') }}" class="primary-btn cta-btn">Create Account</a>
+    </div>
+    
+    <div class="features-grid">
+      <div class="feature-card">
+        <h3>Semantic Keyword Matching</h3>
+        <p>System detects relationships between technical terms to evaluate applicant experience accurately.</p>
+      </div>
+      <div class="feature-card">
+        <h3>Career Progression Tracker</h3>
+        <p>Calculates time spent in previous roles and outputs a velocity metric based on job history.</p>
+      </div>
+      <div class="feature-card">
+        <h3>Behavioral Trait Analysis</h3>
+        <p>Extracts soft skills and behavioral indicators from the applicant's submitted text.</p>
+      </div>
+      <div class="feature-card">
+        <h3>Market Salary Predictor</h3>
+        <p>Estimates salary ranges based on verified experience data and corresponding industry roles.</p>
+      </div>
+      <div class="feature-card">
+        <h3>Timeline Verification</h3>
+        <p>Cross-references claimed years of experience against provable employment dates.</p>
+      </div>
+      <div class="feature-card">
+        <h3>Automated Outreach</h3>
+        <p>Connects to your SMTP server to draft and send communications to selected applicants.</p>
+      </div>
+    </div>
+  </section>
+
+  <footer class="landing-footer">
+    <span>&copy; 2026 ResuMetrics Inc.</span>
+    <a href="{{ url_for('privacy') }}">Privacy Policy</a>
+    <a href="{{ url_for('terms') }}">Terms and Conditions</a>
+    <span>www.resumetrics.com</span>
+  </footer>
+
+</body>
+</html>
