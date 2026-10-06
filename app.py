@@ -487,7 +487,7 @@ def send_shortlist_email():
 
 
 @app.route('/export-csv', methods=['GET'])
-@login_required
+@role_required('admin', 'recruiter', 'viewer')
 def export_csv():
     """Pandas CSV/Excel Leaderboard Exporter Endpoint."""
     if not LAST_REPORT['candidates']:
@@ -542,7 +542,7 @@ def export_csv():
 
 
 @app.route('/export-report', methods=['GET'])
-@login_required
+@role_required('admin', 'recruiter', 'viewer')
 def export_report():
     if not LAST_REPORT['candidates']:
         return jsonify({'error': 'No analysis available. Run /analyze first.'}), 400
@@ -620,7 +620,7 @@ def export_report():
 
 
 @app.route('/optimize-jd', methods=['POST'])
-@login_required
+@role_required('admin', 'recruiter', 'viewer')
 def optimize_jd():
     data = request.get_json()
     if not data or 'skills' not in data:
@@ -633,7 +633,7 @@ def optimize_jd():
 
 
 @app.route('/history', methods=['GET'])
-@login_required
+@role_required('admin', 'recruiter', 'viewer')
 def get_history():
     """Returns all past analysis runs from the database (for teacher demonstration)."""
     import json
@@ -655,7 +655,7 @@ def get_history():
 
 
 @app.route('/analytics', methods=['GET'])
-@login_required
+@role_required('admin', 'recruiter', 'viewer')
 def analytics():
     """Returns aggregated data for the Advanced Analytics Dashboard."""
     if not LAST_REPORT['candidates']:
@@ -686,7 +686,7 @@ def analytics():
 
 
 @app.route('/chat', methods=['POST'])
-@login_required
+@role_required('admin', 'recruiter', 'viewer')
 def chat_bot():
     """RAG Chatbot over resumes."""
     data = request.get_json()
