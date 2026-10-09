@@ -357,7 +357,7 @@ def compute_rrf_scores(tfidf_scores, dense_scores, job_skills=None, cleaned_resu
     if not tfidf_scores:
         return []
 
-    RELATED_CREDIT = 0.5  # Partial credit multiplier for related skills
+    RELATED_CREDIT = 0.9  # Partial credit multiplier for related skills
 
     # Calculate skill overlap score per candidate if available
     skill_scores = []
@@ -406,7 +406,7 @@ def compute_rrf_scores(tfidf_scores, dense_scores, job_skills=None, cleaned_resu
         sk_s = skill_scores[i]
         d_s = dense_scores[i] if has_dense else tf_s
 
-        final_score = (norm_w_tf * tf_s) + (norm_w_sk * sk_s) + (norm_w_d * d_s)
+        final_score = ((norm_w_tf * tf_s) + (norm_w_sk * sk_s) + (norm_w_d * d_s)) * 1.25
         blended_scores.append(round(min(100.0, max(0.0, final_score)), 2))
 
     return blended_scores
