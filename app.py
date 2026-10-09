@@ -46,20 +46,26 @@ MYSQL_HOST = os.environ.get('MYSQL_HOST', 'localhost')
 MYSQL_USER = os.environ.get('MYSQL_USER', 'root')
 MYSQL_PASSWORD = os.environ.get('MYSQL_PASSWORD', 'nitesh123')
 MYSQL_DB = os.environ.get('MYSQL_DB', 'resumetrics')
+MYSQL_PORT = int(os.environ.get('MYSQL_PORT', 3306))
 
 def get_db_connection():
+    # If running on Vercel (or a cloud DB is used), enable SSL which TiDB/Aiven require
+    use_ssl = {'ssl': {'ca': '/etc/ssl/certs/ca-certificates.crt'}} if os.environ.get('VERCEL') else None
+    
     return pymysql.connect(
         host=MYSQL_HOST,
+        port=MYSQL_PORT,
         user=MYSQL_USER,
         password=MYSQL_PASSWORD,
-        database=MYSQL_DB
+        database=MYSQL_DB,
+        ssl=use_ssl
     )
 
 def init_db():
     try:
         # Create database if it doesn't exist (only locally, not on serverless)
         if not os.environ.get('VERCEL'):
-            conn = pymysql.connect(host=MYSQL_HOST, user=MYSQL_USER, password=MYSQL_PASSWORD)
+            conn = pymysql.connect(host=MYSQL_HOST, port=MYSQL_PORT, user=MYSQL_USER, password=MYSQL_PASSWORD)
             cursor = conn.cursor()
             cursor.execute(f"CREATE DATABASE IF NOT EXISTS {MYSQL_DB}")
             conn.commit()
