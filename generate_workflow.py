@@ -86,8 +86,11 @@ def generate_workflow_pdf(output_path="ResuMetrics_Workflow.pdf"):
         "<b>Step 6: Showing the Results</b><br/>"
         "The system sends all this information back to your screen, drawing beautiful interactive charts (like radar graphs) so you can visually compare the candidates.",
 
-        "<b>Step 7: Taking Action</b><br/>"
-        "You can immediately send automated interview emails to the best candidates, or ask the AI to generate a custom take-home test for them, right from the dashboard."
+        "<b>Step 7: Taking Action & Shortlisting</b><br/>"
+        "You can immediately send automated interview emails to the best candidates, or ask the AI to generate a custom take-home test for them, right from the dashboard.",
+        
+        "<b>Step 8: Pipeline Management & Conversational AI</b><br/>"
+        "Drag and drop candidates across an interactive Kanban board (Applied -> Shortlisted -> Interviewing -> Rejected) and use the built-in RAG Chatbot to ask natural language questions about your candidate pool."
     ]
 
     for idx, step in enumerate(workflow_steps, start=1):

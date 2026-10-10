@@ -7,3 +7,6 @@ python-docx
 scikit-learn
 nltk
 reportlab
+numpy
+sentence-transformers
+torch

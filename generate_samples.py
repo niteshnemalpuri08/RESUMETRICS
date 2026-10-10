@@ -1,14 +1,14 @@
 import os
+import random
+import shutil
 from reportlab.lib.pagesizes import letter
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 
 def create_resume(filename, name, contact, text_blocks):
-    os.makedirs('sample_resumes', exist_ok=True)
     doc = SimpleDocTemplate(f"sample_resumes/{filename}", pagesize=letter)
     styles = getSampleStyleSheet()
     
-    # Custom styles
     title_style = ParagraphStyle('Title', parent=styles['Heading1'], fontSize=18, spaceAfter=10)
     contact_style = ParagraphStyle('Contact', parent=styles['Normal'], fontSize=10, textColor='gray', spaceAfter=20)
     heading_style = ParagraphStyle('Heading', parent=styles['Heading2'], fontSize=14, spaceAfter=6, spaceBefore=12)
@@ -16,11 +16,9 @@ def create_resume(filename, name, contact, text_blocks):
     
     story = []
     
-    # Header
     story.append(Paragraph(f"<b>{name}</b>", title_style))
     story.append(Paragraph(contact, contact_style))
     
-    # Sections
     for block in text_blocks:
         if block.startswith('##'):
             story.append(Paragraph(f"<b>{block[2:].strip()}</b>", heading_style))
@@ -29,55 +27,50 @@ def create_resume(filename, name, contact, text_blocks):
             
     doc.build(story)
 
-# Resume 1: The Perfect Match (Senior ML Engineer)
-r1_text = [
-    "## SUMMARY",
-    "Results-driven Senior AI Architect and Machine Learning Engineer with 8 years of experience building scalable data pipelines and deploying deep learning models. Highly collaborative and team-oriented leader who mentors junior developers and drives cross-functional initiatives to increase revenue.",
-    "## SKILLS",
-    "Programming: Python, SQL, Java, C++",
-    "Frameworks: PyTorch, Keras, Scikit-Learn, Pandas",
-    "Infrastructure: AWS, GCP, Docker, Kubernetes",
-    "## EXPERIENCE",
-    "<b>Senior AI Architect</b> | Google | Jan 2018 - Present",
-    "Led a cross-functional team to deploy a massive deep learning recommendation engine using PyTorch and Kubernetes on AWS, resulting in a 15% increase in user engagement.",
-    "Innovated a novel data pipeline utilizing SQL and Apache Spark to process terabytes of data daily.",
-    "<b>Machine Learning Engineer</b> | Startup Inc. | Feb 2015 - Dec 2017",
-    "Developed predictive models using Python and Scikit-Learn. Collaborated with product managers to deliver data-driven solutions.",
-    "## EDUCATION",
-    "B.S. Computer Science | MIT | Graduated May 2014"
-]
-create_resume("Elena_Rostova_Senior_AI.pdf", "Elena Rostova", "elena.rostova@email.com | 555-019-2837", r1_text)
+def generate_20_resumes():
+    # Clear directory
+    if os.path.exists('sample_resumes'):
+        shutil.rmtree('sample_resumes')
+    os.makedirs('sample_resumes', exist_ok=True)
 
-# Resume 2: The Timeline Fraud (Junior but claiming Senior)
-r2_text = [
-    "## SUMMARY",
-    "Senior Data Scientist with 8 years of extensive industry experience in Python and SQL. Fast-paced, adaptable, and flexible professional looking for a leadership role.",
-    "## SKILLS",
-    "Python, SQL, Tableau, Data Analysis, Excel",
-    "## EXPERIENCE",
-    "<b>Data Scientist</b> | Tech Corp | Jan 2022 - Present",
-    "Created data visualization dashboards. Analyzed business metrics using SQL.",
-    "<b>Data Analyst</b> | Local Business | Mar 2021 - Dec 2021",
-    "Cleaned datasets using Python and pandas.",
-    "## EDUCATION",
-    "B.A. Economics | State University | Graduated 2020"
-]
-create_resume("John_Doe_Data_Scientist.pdf", "John Doe", "john.doe@email.com | 555-123-4567", r2_text)
+    first_names = ["Alex", "Jordan", "Taylor", "Casey", "Morgan", "Riley", "Avery", "Quinn", "Skyler", "Drew", "Sydney", "Cameron", "Jesse", "Dakota", "Logan", "Peyton", "Spencer", "Kendall", "Reese", "Parker"]
+    last_names = ["Smith", "Johnson", "Williams", "Brown", "Jones", "Garcia", "Miller", "Davis", "Rodriguez", "Martinez", "Hernandez", "Lopez", "Gonzalez", "Wilson", "Anderson", "Thomas", "Taylor", "Moore", "Jackson", "Martin"]
 
-# Resume 3: The Generalist / Non-Tech Culture Fit
-r3_text = [
-    "## SUMMARY",
-    "Dynamic and agile Product Manager with a passion for designing innovative and creative solutions. Extremely adaptable and collaborative team player who excels in fast-paced startup environments. Focuses on bringing people together to brainstorm novel ideas.",
-    "## SKILLS",
-    "Product Management, Agile, Scrum, Jira, Figma, Cross-functional Leadership, Communication",
-    "## EXPERIENCE",
-    "<b>Product Manager</b> | InnovateTech | Jun 2019 - Present",
-    "Collaborated with engineering and design teams to launch 3 major SaaS products. Spearheaded brainstorming sessions and designed user-centric workflows.",
-    "<b>Scrum Master</b> | AgileWorks | Jan 2017 - May 2019",
-    "Mentored teams on Agile methodologies. Supported cross-functional delivery.",
-    "## EDUCATION",
-    "B.S. Business Administration | NYU | Graduated 2016"
-]
-create_resume("Sarah_Jenkins_Product_Manager.pdf", "Sarah Jenkins", "sarah.j@email.com | 555-987-6543", r3_text)
+    roles = [
+        ("Senior Full-Stack Engineer", ["React", "Python", "Node.js", "AWS", "SQL"]),
+        ("Backend Developer", ["Python", "Django", "PostgreSQL", "Docker", "Redis", "FastAPI"]),
+        ("Frontend Engineer", ["JavaScript", "TypeScript", "React", "Vue", "CSS", "Tailwind"]),
+        ("Data Scientist", ["Python", "Machine Learning", "Pandas", "Scikit-Learn", "SQL", "Tableau"]),
+        ("DevOps Engineer", ["AWS", "Kubernetes", "Docker", "CI/CD", "Terraform", "Linux"]),
+        ("Machine Learning Engineer", ["Python", "TensorFlow", "PyTorch", "AWS", "MLOps", "NLP"]),
+        ("Software Architect", ["Java", "Spring Boot", "Microservices", "Kafka", "PostgreSQL", "AWS"])
+    ]
+    
+    companies = ["Google", "Amazon", "Startup Inc.", "Tech Solutions", "InnovateCorp", "Fintech Partners", "HealthTech Ltd"]
+    
+    for i in range(20):
+        name = f"{first_names[i]} {last_names[i]}"
+        role, skills = random.choice(roles)
+        company = random.choice(companies)
+        
+        text_blocks = [
+            "## SUMMARY",
+            f"Highly motivated {role} with 5+ years of experience specializing in {', '.join(skills[:3])}. Proven track record of delivering scalable solutions and driving revenue growth through technical innovation.",
+            "## SKILLS",
+            f"Technologies: {', '.join(skills)}",
+            "## EXPERIENCE",
+            f"<b>{role}</b> | {company} | Jan 2019 - Present",
+            f"Led the development of a high-performance system using {skills[0]} and {skills[1]}. Mentored junior engineers and implemented best practices in CI/CD.",
+            f"<b>Software Developer</b> | Tech Solutions | Feb 2016 - Dec 2018",
+            f"Developed RESTful APIs and maintained database schemas for a large user base using {skills[-1]}.",
+            "## EDUCATION",
+            "B.S. Computer Science | State University | Graduated 2015"
+        ]
+        
+        filename = f"{name.replace(' ', '_')}_{role.replace(' ', '_')}.pdf"
+        create_resume(filename, name, f"{name.lower().replace(' ','')}@email.com | 555-010-{i:04d}", text_blocks)
+        
+    print("Successfully cleared old resumes and generated 20 new high-quality sample resumes.")
 
-print("Generated 3 high-quality sample resumes in 'sample_resumes' folder.")
+if __name__ == '__main__':
+    generate_20_resumes()

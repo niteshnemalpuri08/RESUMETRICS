@@ -59,56 +59,78 @@ def generate_project_summary_pdf(output_path="ResuMetrics_Project_Summary.pdf"):
         'SubTitle', parent=styles['Heading2'], fontSize=14, textColor=colors.HexColor('#64748b'), alignment=1, spaceAfter=30
     )))
 
-    # Introduction
-    elements.append(Paragraph("What is ResuMetrics?", h2_style))
+    # 1. Overview & Purpose
+    elements.append(Paragraph("1. Overview & Purpose", h2_style))
     intro_text = (
-        "ResuMetrics is a smart assistant for hiring managers. Instead of spending hours reading through "
-        "hundreds of resumes, you simply upload them to ResuMetrics. The system uses Artificial Intelligence "
-        "to instantly read every resume, understand the candidate's experience, and rank them based on exactly "
-        "what you are looking for in a perfect hire."
+        "ResuMetrics is an AI-powered hybrid resume screening and candidate matching web application. "
+        "It is designed for HR teams, hiring managers, and recruiters who need to process large volumes of resumes quickly. "
+        "The primary goal is to analyze candidate resumes (PDF or DOCX) against a job description or skill list "
+        "and generate a ranked leaderboard based on requirements matching."
     )
     elements.append(Paragraph(intro_text, body_style))
 
-    # Core Features
-    elements.append(Paragraph("Key Features (Simply Explained)", h2_style))
-    
-    features = [
-        "<b>Smart Reading (AI Understanding):</b> Instead of just using simple 'CTRL+F' to look for exact words, the AI actually understands meaning. If you ask for 'React', it knows that 'Frontend Web Developer' is a related skill.",
-        "<b>Automatic Data Extraction:</b> The system automatically reads the resume and pulls out the important stuff: University names, Degrees, Job Titles, and impressive numbers (like 'Increased sales by 30%').",
-        "<b>AI Candidate Summaries:</b> You don't have to read the whole resume. The AI writes a short, easy-to-read summary of the candidate's background, highlights their best soft skills, and even tells you if they get promoted quickly.",
-        "<b>One-Click Emails:</b> Found some great candidates? You can select them all and hit 'Send Emails'. The system will automatically draft and send them personalized interview invitations.",
-        "<b>Custom Take-Home Tests:</b> The AI can look at a candidate's specific skills and instantly generate a unique take-home assignment to test their abilities before the interview.",
-        "<b>Visual Dashboard:</b> See all your candidates on a beautiful screen. You get visual charts (like a radar graph) showing exactly where they are strong and where they are weak.",
-        "<b>Secure Storage:</b> Every resume and analysis is saved safely in a secure database so you never lose track of a good candidate."
+    # 2. Core Functionality & User Workflow
+    elements.append(Paragraph("2. Core Functionality & User Workflow", h2_style))
+    workflow = [
+        "<b>Input:</b> Upload multiple candidate resumes via a drag-and-drop interface and paste a job description.",
+        "<b>Customization:</b> Tweak the importance of different matching algorithms using weight sliders.",
+        "<b>Processing:</b> Extracts text directly from files in memory, cleans the text, and runs it through multiple AI scoring algorithms in parallel.",
+        "<b>Results:</b> A dashboard displays interactive cards for each candidate featuring score gauges, matched/missing skill badges, contact info, and fraud alerts.",
+        "<b>Export:</b> The final leaderboard can be exported as a professional PDF report or a CSV spreadsheet."
     ]
-    
-    feature_items = [ListItem(Paragraph(f, bullet_style)) for f in features]
-    elements.append(ListFlowable(feature_items, bulletType='bullet', start='circle'))
+    workflow_items = [ListItem(Paragraph(w, bullet_style)) for w in workflow]
+    elements.append(ListFlowable(workflow_items, bulletType='bullet', start='circle'))
     elements.append(Spacer(1, 10))
 
-    # Tech Stack
-    elements.append(Paragraph("Technology Used (Behind the Scenes)", h2_style))
+    # 3. The 'AI Brain'
+    elements.append(Paragraph("3. The 'AI Brain' (Scoring Algorithms)", h2_style))
+    algo_text = "The hybrid scoring engine blends three independent algorithms to ensure fair and accurate candidate ranking:"
+    elements.append(Paragraph(algo_text, body_style))
+    algos = [
+        "<b>TF-IDF Keyword Matching (40%):</b> Finds overlapping technical terms and keywords, emphasizing rare, distinct terms over common filler words.",
+        "<b>Exact Skill Matching (35%):</b> A fast algorithm that checks for the binary presence of specific required skills.",
+        "<b>Dense Semantic Matching (25%):</b> Utilizes SentenceTransformer (an AI neural network) to understand the meaning of the text, matching semantically similar concepts."
+    ]
+    algo_items = [ListItem(Paragraph(a, bullet_style)) for a in algos]
+    elements.append(ListFlowable(algo_items, bulletType='bullet', start='circle'))
+    elements.append(Spacer(1, 10))
+
+    # 4. Advanced NLP & Smart Features
+    elements.append(Paragraph("4. Advanced NLP & Smart Features", h2_style))
+    nlp = [
+        "<b>Timeline Fraud Detection:</b> Compares explicit years of experience claimed against actual dates in job history, raising an alert on discrepancies.",
+        "<b>Named Entity Recognition (NER):</b> Automatically categorizes degrees, job roles, professional certifications, and spoken languages.",
+        "<b>Behavioral & Metric Extraction:</b> Identifies soft skills, impact-driven action verbs, and quantifiable metrics (e.g., '$10M', '50%').",
+        "<b>RAG AI Chatbot:</b> Integrated chatbot allows recruiters to ask semantic questions over all uploaded candidate resumes.",
+        "<b>Kanban ATS Pipeline:</b> Interactive drag-and-drop board to track candidates through Applied, Shortlisted, Interviewing, and Rejected stages.",
+        "<b>Automated Shortlisting:</b> Integrated SMTP mailer to bulk-email selected candidates directly from the dashboard."
+    ]
+    nlp_items = [ListItem(Paragraph(n, bullet_style)) for n in nlp]
+    elements.append(ListFlowable(nlp_items, bulletType='bullet', start='circle'))
+    elements.append(Spacer(1, 10))
+
+    # 5. Architecture & Tech Stack
+    elements.append(Paragraph("5. Architecture & Tech Stack", h2_style))
     tech = [
-        "<b>The Brain (Python & Flask):</b> This is the main engine running the software, handling everything from uploading files to talking to the AI.",
-        "<b>The Memory (MySQL Database):</b> A highly reliable storage system where all candidate information is kept safe.",
-        "<b>The AI Reader (Sentence-Transformers):</b> A powerful AI model (similar to the tech behind ChatGPT) that understands human sentences.",
-        "<b>The Look and Feel (HTML, CSS, JavaScript):</b> The code that makes the website look beautiful, modern, and easy to click around.",
-        "<b>The Visuals (Chart.js):</b> The tool used to draw the colorful, interactive graphs on your screen."
+        "<b>Backend (Python):</b> Flask for web server, SQLite for data, PyPDF/python-docx for parsing, and ReportLab/Pandas for exporting.",
+        "<b>AI Engines:</b> scikit-learn, sentence-transformers, PyTorch, and NumPy handle the advanced scoring and matching.",
+        "<b>Frontend:</b> HTML5, CSS3, Vanilla JavaScript, and SVG for animations, featuring a responsive, modern UI."
     ]
     tech_items = [ListItem(Paragraph(t, bullet_style)) for t in tech]
-    elements.append(ListFlowable(tech_items, bulletType='bullet', start='square'))
+    elements.append(ListFlowable(tech_items, bulletType='bullet', start='circle'))
     elements.append(Spacer(1, 10))
-
-    # Project Structure
-    elements.append(Paragraph("How the Files are Organized", h2_style))
-    structure = [
-        "<b>app.py:</b> The 'Traffic Controller'. It manages the web pages and connects the user to the database.",
-        "<b>resume_parser.py:</b> The 'Heavy Lifter'. This is where the AI actually reads the resumes and calculates the scores.",
-        "<b>static/js/main.js:</b> The 'Interactivity Engine'. This makes buttons work, charts draw, and animations play without reloading the page.",
-        "<b>templates/:</b> The folder holding the visual layouts for the login screen and the main dashboard.",
+    
+    # 6. Performance Optimizations
+    elements.append(Paragraph("6. Performance Optimizations", h2_style))
+    perf = [
+        "<b>In-Memory Processing:</b> Eliminates disk I/O by reading file bytes directly.",
+        "<b>Concurrency:</b> Uses ThreadPoolExecutor to parse multiple resumes simultaneously.",
+        "<b>AI Model Pre-warming:</b> The SentenceTransformer model loads in a background thread at startup for instant readiness.",
+        "<b>Caching:</b> Uses SHA-256 to cache semantic vectors for resumes, making repeated analyses instant.",
+        "<b>Single-Pass Regex:</b> Consolidates multiple regex replacement passes into a single pass for faster text normalization."
     ]
-    structure_items = [ListItem(Paragraph(s, bullet_style)) for s in structure]
-    elements.append(ListFlowable(structure_items, bulletType='bullet', start='circle'))
+    perf_items = [ListItem(Paragraph(p, bullet_style)) for p in perf]
+    elements.append(ListFlowable(perf_items, bulletType='bullet', start='circle'))
 
     # Build PDF
     doc.build(elements)
