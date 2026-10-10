@@ -1,6 +1,15 @@
 import os
 import sys
 import io
+import tempfile
+
+# Route temp files to /tmp for Vercel serverless compatibility
+os.environ['TMPDIR'] = '/tmp'
+os.environ['TRANSFORMERS_CACHE'] = '/tmp'
+os.environ['HF_HOME'] = '/tmp'
+os.environ['MPLCONFIGDIR'] = '/tmp'
+os.environ['NLTK_DATA'] = '/tmp'
+import io
 import datetime
 import pymysql
 import threading
