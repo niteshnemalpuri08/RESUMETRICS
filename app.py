@@ -45,11 +45,17 @@ from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, 
 
 from werkzeug.security import generate_password_hash, check_password_hash
 
-app = Flask(__name__)
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+app = Flask(
+    __name__,
+    template_folder=os.path.join(BASE_DIR, 'templates'),
+    static_folder=os.path.join(BASE_DIR, 'static')
+)
 app.secret_key = os.environ.get('SECRET_KEY', 'resumetrics-secret-key-change-in-prod')
 
 # ---------------------------------------------------------------------------
-# MySQL Database Configuration & Initialization
+# MySQL / TiDB Database Configuration & Initialization
 # ---------------------------------------------------------------------------
 MYSQL_HOST = os.environ.get('MYSQL_HOST', 'localhost')
 MYSQL_USER = os.environ.get('MYSQL_USER', 'root')
@@ -57,24 +63,47 @@ MYSQL_PASSWORD = os.environ.get('MYSQL_PASSWORD', 'nitesh123')
 MYSQL_DB = os.environ.get('MYSQL_DB', 'resumetrics')
 MYSQL_PORT = int(os.environ.get('MYSQL_PORT', 3306))
 
+def get_ssl_config():
+    """Detect appropriate SSL options for TiDB Cloud / Aiven on Vercel or cloud."""
+    if not (os.environ.get('VERCEL') or os.environ.get('MYSQL_SSL')):
+        return None
+    ca_candidates = [
+        os.environ.get('MYSQL_SSL_CA', ''),
+        '/etc/pki/tls/certs/ca-bundle.crt',      # Amazon Linux / AWS Lambda (Vercel)
+        '/etc/ssl/certs/ca-bundle.crt',          # Alternate Amazon Linux
+        '/etc/ssl/certs/ca-certificates.crt',    # Debian / Ubuntu
+        '/etc/ssl/cert.pem'                      # Alpine / BSD
+    ]
+    for path in ca_candidates:
+        if path and os.path.exists(path):
+            return {'ca': path}
+    return {'check_hostname': False}
+
 def get_db_connection():
-    # If running on Vercel (or a cloud DB is used), enable SSL which TiDB/Aiven require
-    use_ssl = {'ssl': {'ca': '/etc/ssl/certs/ca-certificates.crt'}} if os.environ.get('VERCEL') else None
-    
-    return pymysql.connect(
-        host=MYSQL_HOST,
-        port=MYSQL_PORT,
-        user=MYSQL_USER,
-        password=MYSQL_PASSWORD,
-        database=MYSQL_DB,
-        ssl=use_ssl
-    )
+    ssl_conf = get_ssl_config()
+    kwargs = {
+        'host': MYSQL_HOST,
+        'port': MYSQL_PORT,
+        'user': MYSQL_USER,
+        'password': MYSQL_PASSWORD,
+        'database': MYSQL_DB,
+        'connect_timeout': 4
+    }
+    if ssl_conf:
+        kwargs['ssl'] = ssl_conf
+    return pymysql.connect(**kwargs)
 
 def init_db():
     try:
         # Create database if it doesn't exist (only locally, not on serverless)
         if not os.environ.get('VERCEL'):
-            conn = pymysql.connect(host=MYSQL_HOST, port=MYSQL_PORT, user=MYSQL_USER, password=MYSQL_PASSWORD)
+            conn = pymysql.connect(
+                host=MYSQL_HOST,
+                port=MYSQL_PORT,
+                user=MYSQL_USER,
+                password=MYSQL_PASSWORD,
+                connect_timeout=3
+            )
             cursor = conn.cursor()
             cursor.execute(f"CREATE DATABASE IF NOT EXISTS {MYSQL_DB}")
             conn.commit()
@@ -112,9 +141,14 @@ def init_db():
         conn.commit()
         conn.close()
     except Exception as e:
-        print(f"Database initialization failed: {e}")
+        print(f"Database initialization notice: {e}")
 
-init_db()
+# Only run table initialization on startup if not on serverless (or when configured)
+if not os.environ.get('VERCEL') or (MYSQL_HOST and MYSQL_HOST != 'localhost'):
+    try:
+        init_db()
+    except Exception as e:
+        print(f"Startup DB check notice: {e}")
 
 # ---------------------------------------------------------------------------
 # Background Non-Blocking AI Pre-Warming
@@ -183,20 +217,24 @@ def login():
             flash('Please fill in all fields.', 'error')
             return render_template('login.html')
 
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        cursor.execute('SELECT id, full_name, password_hash, role FROM users WHERE email = %s', (email,))
-        user = cursor.fetchone()
-        conn.close()
+        try:
+            conn = get_db_connection()
+            cursor = conn.cursor()
+            cursor.execute('SELECT id, full_name, password_hash, role FROM users WHERE email = %s', (email,))
+            user = cursor.fetchone()
+            conn.close()
 
-        if user and check_password_hash(user[2], password):
-            session['user_id'] = user[0]
-            session['user_name'] = user[1]
-            session['user_email'] = email
-            session['user_role'] = user[3] if user[3] else 'recruiter'
-            return redirect(url_for('dashboard'))
-        else:
-            flash('Invalid email or password.', 'error')
+            if user and check_password_hash(user[2], password):
+                session['user_id'] = user[0]
+                session['user_name'] = user[1]
+                session['user_email'] = email
+                session['user_role'] = user[3] if user[3] else 'recruiter'
+                return redirect(url_for('dashboard'))
+            else:
+                flash('Invalid email or password.', 'error')
+                return render_template('login.html')
+        except Exception as e:
+            flash(f'Database connection notice: {e}. Please check your database settings.', 'error')
             return render_template('login.html')
 
     return render_template('login.html')
@@ -237,27 +275,31 @@ def register():
             flash('Password must be at least 6 characters.', 'error')
             return render_template('register.html')
 
-        conn = get_db_connection()
-        cursor = conn.cursor()
+        try:
+            conn = get_db_connection()
+            cursor = conn.cursor()
 
-        # Check if email already exists
-        cursor.execute('SELECT id FROM users WHERE email = %s', (email,))
-        if cursor.fetchone():
+            # Check if email already exists
+            cursor.execute('SELECT id FROM users WHERE email = %s', (email,))
+            if cursor.fetchone():
+                conn.close()
+                flash('An account with this email already exists.', 'error')
+                return render_template('register.html')
+
+            # Create user
+            password_hash = generate_password_hash(password)
+            cursor.execute(
+                'INSERT INTO users (full_name, email, password_hash, role) VALUES (%s, %s, %s, %s)',
+                (full_name, email, password_hash, role)
+            )
+            conn.commit()
             conn.close()
-            flash('An account with this email already exists.', 'error')
+
+            flash('Account created successfully! Please sign in.', 'success')
+            return redirect(url_for('login'))
+        except Exception as e:
+            flash(f'Database connection notice: {e}. Please check your database settings.', 'error')
             return render_template('register.html')
-
-        # Create user
-        password_hash = generate_password_hash(password)
-        cursor.execute(
-            'INSERT INTO users (full_name, email, password_hash, role) VALUES (%s, %s, %s, %s)',
-            (full_name, email, password_hash, role)
-        )
-        conn.commit()
-        conn.close()
-
-        flash('Account created successfully! Please sign in.', 'success')
-        return redirect(url_for('login'))
 
     return render_template('register.html')
 
@@ -652,21 +694,24 @@ def optimize_jd():
 def get_history():
     """Returns all past analysis runs from the database (for teacher demonstration)."""
     import json
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute('SELECT id, job_description, analyzed_at, candidates_json FROM analysis_history ORDER BY analyzed_at DESC')
-    rows = cursor.fetchall()
-    conn.close()
-    
-    history = []
-    for row in rows:
-        history.append({
-            'id': row[0],
-            'job_description': row[1],
-            'analyzed_at': row[2],
-            'candidates_analyzed': len(json.loads(row[3]))
-        })
-    return jsonify({'analysis_history': history})
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute('SELECT id, job_description, analyzed_at, candidates_json FROM analysis_history ORDER BY analyzed_at DESC')
+        rows = cursor.fetchall()
+        conn.close()
+        
+        history = []
+        for row in rows:
+            history.append({
+                'id': row[0],
+                'job_description': row[1],
+                'analyzed_at': row[2],
+                'candidates_analyzed': len(json.loads(row[3]))
+            })
+        return jsonify({'analysis_history': history})
+    except Exception as e:
+        return jsonify({'analysis_history': [], 'notice': f'Database notice: {e}'})
 
 
 @app.route('/analytics', methods=['GET'])
@@ -710,11 +755,14 @@ def chat_bot():
     if not query:
          return jsonify({"answer": "Please ask a question."})
     
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute('SELECT filename, extracted_text FROM candidates ORDER BY analyzed_at DESC LIMIT 50')
-    rows = cursor.fetchall()
-    conn.close()
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute('SELECT filename, extracted_text FROM candidates ORDER BY analyzed_at DESC LIMIT 50')
+        rows = cursor.fetchall()
+        conn.close()
+    except Exception as e:
+        return jsonify({"answer": f"Database notice: {e}. Semantic database search is unavailable."})
     
     if not rows:
          return jsonify({"answer": "No resumes available to search in the database."})

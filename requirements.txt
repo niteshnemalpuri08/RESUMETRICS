@@ -1,10 +1,10 @@
 Flask
 Werkzeug
 pymysql
+cryptography
 pdfplumber
 pypdf
 python-docx
 scikit-learn
-nltk
 reportlab
 numpy

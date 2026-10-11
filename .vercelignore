@@ -1,0 +1,12 @@
+.git
+__pycache__/
+*.pyc
+sample_resumes/
+uploads/
+resumetrics.db
+ResuMetrics_Project_Summary.pdf
+ResuMetrics_Workflow.pdf
+PROJECT_DOCUMENTATION.md
+generate_samples.py
+generate_summary.py
+generate_workflow.py
