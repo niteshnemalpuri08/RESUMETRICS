@@ -23,83 +23,85 @@
 
 ## 1. Project Summary
 
-**ResuMetrics** is a web application that helps recruiters and hiring managers quickly screen and rank job candidates by analyzing their resumes against a job description.
+**ResuMetrics** is an enterprise-grade AI resume screening, talent analytics, and Applicant Tracking System (ATS). It evaluates candidate resumes (PDF or DOCX) against job requirements with sub-second latency, providing hybrid AI scoring, timeline fraud auditing, role-specific portals, and cloud-ready hybrid persistence.
 
 ### What does it do?
 
-- You **upload multiple resumes** (PDF or DOCX files) and **paste a job description** or list of required skills.
-- The app **reads every resume**, **extracts the text**, and uses **AI-powered algorithms** to calculate how well each candidate matches the job requirements.
-- It produces a **ranked leaderboard** of candidates with match scores, matched/missing skills, contact info, and even a **fraud detection alert** if a candidate appears to exaggerate their years of experience.
-- You can **export the results** as a **PDF report** or **CSV spreadsheet** (compatible with Excel).
+- **Dual-Role Experience:**
+  - **Recruiter Dashboard:** Batch drag-and-drop resume upload, adjustable algorithm weight sliders, candidate rankings, comparison radar charts, automated shortlisting emails via SMTP, and interactive drag-and-drop Kanban ATS stages.
+  - **Applicant Portal:** Single-resume ATS compatibility checking, targeted keyword gap analysis, missing skill roadmaps, and optimization tips.
+- **1-Click Instant Demo:** Frictionless instant access to full features for both Recruiter and Applicant personas.
+- **Hybrid AI Scoring:** Blends TF-IDF vectorization, Exact Skill & N-Gram Extraction, and Dense Semantic Sentence Embeddings with Reciprocal Rank Fusion (RRF).
+- **Timeline Fraud Detection:** Cross-checks self-reported experience against detected employment date ranges to flag discrepancies.
+- **Enterprise Persistence:** Connects directly to MySQL (`root:nitesh123@localhost:3306/resumetrics`) with automatic, self-healing SQLite proxy fallback for serverless deployments.
+- **Exports & Reporting:** Exports professional PDF summaries via ReportLab and CSV spreadsheets compatible with Excel.
 
 ### Who is it for?
 
-- HR teams screening applicants
-- Hiring managers comparing candidates
-- Recruiters processing large volumes of resumes
+- Recruiters and talent acquisition teams screening high volumes of applicants
+- Hiring managers comparing and shortlisting candidates
+- Job applicants optimizing their resumes for ATS compatibility
 
 ---
 
 ## 2. How It Works — The Big Picture
 
-Here's the step-by-step flow of what happens when you click **"Analyze Candidates"**:
+Here is the step-by-step lifecycle of a screening job in ResuMetrics:
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│  USER uploads resumes + types job description in browser    │
+│  USER selects Recruiter / Applicant Portal or 1-Click Demo  │
 └──────────────────────────┬──────────────────────────────────┘
                            │
                            ▼
 ┌─────────────────────────────────────────────────────────────┐
-│  Step 1: FILE INGESTION                                     │
-│  • Files are read directly in memory (no disk saving)       │
-│  • PDF text extracted using PyPDF library                   │
-│  • DOCX text extracted using python-docx library            │
-│  • Multiple files processed in parallel (using threads)     │
+│  Step 1: FILE INGESTION & IN-MEMORY STREAMING               │
+│  • Upload PDF or DOCX files directly via drag-and-drop      │
+│  • Files read directly in memory (zero disk bottleneck)     │
+│  • PyPDF / python-docx extract raw document text             │
+│  • Multiple files parsed in parallel with ThreadPoolExecutor│
 └──────────────────────────┬──────────────────────────────────┘
                            │
                            ▼
 ┌─────────────────────────────────────────────────────────────┐
 │  Step 2: TEXT CLEANING & NORMALIZATION                       │
-│  • Convert everything to lowercase                          │
-│  • Replace tech terms like "C++" → "cpp", "Node.js" →      │
-│    "nodejs" so they survive punctuation removal              │
-│  • Remove all punctuation and special characters            │
-│  • Remove common filler words ("the", "a", "is", etc.)     │
+│  • Single-pass regex standardization ("C++" → "cpp")        │
+│  • Case normalization and punctuation cleanup               │
+│  • Removal of formatting noise and non-informative stopwords │
 └──────────────────────────┬──────────────────────────────────┘
                            │
                            ▼
 ┌─────────────────────────────────────────────────────────────┐
-│  Step 3: AI SCORING (Three Independent Algorithms)          │
+│  Step 3: HYBRID AI SCORING (Three Independent Dimensions)   │
 │                                                             │
 │  ┌──────────────┐  ┌──────────────┐  ┌──────────────────┐  │
 │  │  TF-IDF      │  │  Dense       │  │  Exact Skill     │  │
-│  │  Keyword     │  │  Semantic    │  │  Matching        │  │
-│  │  Matching    │  │  AI Vectors  │  │                  │  │
+│  │  Keyword     │  │  Semantic    │  │  N-Gram Match    │  │
+│  │  Vector (40%)│  │  Embed (25%) │  │  (35%)           │  │
 │  └──────┬───────┘  └──────┬───────┘  └────────┬─────────┘  │
 │         │                 │                    │            │
 │         └────────┬────────┴────────────────────┘            │
 │                  ▼                                          │
-│       HYBRID WEIGHTED BLEND → Final Score (0-100%)          │
+│       RECIPROCAL RANK FUSION (RRF) → Final Match Index       │
 └──────────────────────────┬──────────────────────────────────┘
                            │
                            ▼
 ┌─────────────────────────────────────────────────────────────┐
-│  Step 4: CANDIDATE REPORT BUILDING                          │
-│  • Extract email & phone from resume header                 │
-│  • Identify matched vs missing skills                       │
-│  • Run fraud/timeline audit (compare claimed vs proven      │
-│    years of experience)                                     │
-│  • Sort candidates by final score (highest first)           │
+│  Step 4: TIMELINE AUDITING & ENTITY EXTRACTION              │
+│  • Extract candidate email, phone, education, metrics       │
+│  • Detect timeline fraud (claimed vs calculated experience) │
+│  • Identify matched skills vs missing skill gaps            │
+│  • Persist candidates, users & history to MySQL / SQLite     │
 └──────────────────────────┬──────────────────────────────────┘
                            │
                            ▼
 ┌─────────────────────────────────────────────────────────────┐
-│  Step 5: RESULTS DISPLAYED                                  │
-│  • Interactive cards with animated score gauges              │
-│  • Matched/missing skill badges                             │
-│  • Timeline fraud alerts (if detected)                      │
-│  • Export as PDF or CSV                                      │
+│  Step 5: RESULTS & ACTIONABLE WORKFLOWS                     │
+│  • Interactive candidate leaderboard & radar charts          │
+│  • Dynamic Kanban ATS (Applied, Shortlisted, Interview)     │
+│  • 1-Click bulk shortlist notification emails via SMTP      │
+│  • Conversational RAG AI Chatbot for applicant questions     │
+│  • Export PDF candidate reports and CSV spreadsheets        │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -111,28 +113,28 @@ Here's the step-by-step flow of what happens when you click **"Analyze Candidate
 
 | Technology | What It Does | Why We Use It |
 |---|---|---|
-| **Python 3.14** | The main programming language | Easy to write, huge AI/ML library ecosystem |
-| **Flask** | Lightweight web framework | Creates the web server, handles routes (`/`, `/analyze`, `/export`) |
-| **SQLite** | Embedded database | Stores extracted resume text for history; no separate DB server needed |
-| **PyPDF** | PDF text extraction | Reads text content from uploaded PDF files |
-| **python-docx** | DOCX text extraction | Reads text content from uploaded Word documents |
-| **scikit-learn** | Machine learning library | Provides the TF-IDF vectorizer for keyword matching |
-| **sentence-transformers** | AI sentence embedding library | Creates semantic "meaning" vectors using a neural network |
-| **PyTorch** | Deep learning engine | Powers the SentenceTransformer neural network behind the scenes |
-| **NumPy** | Numerical computing | Fast math operations for vectors, dot products, similarity scores |
-| **FAISS** (optional) | Facebook AI Similarity Search | Can accelerate similarity search for large batches |
-| **ReportLab** | PDF generation | Creates the professional PDF export report |
-| **Pandas** | Data manipulation | Creates the CSV/Excel export file |
-| **NLTK** | Natural language toolkit | Listed in requirements (available for extended NLP features) |
+| **Python 3.12+** | Main programming language | High-performance AI/ML ecosystem and data parsing |
+| **Flask** | Web framework | Fast routing, REST APIs, session management, and templating |
+| **MySQL / PyMySQL** | Relational database | Primary database (`root:nitesh123@localhost:3306/resumetrics`) |
+| **SQLite (Adaptive)** | Embedded database fallback | Ensures zero downtime in serverless environments via proxy |
+| **Vercel WSGI Middleware** | Routing & ProxyFix | Seamless cloud routing for serverless entry points |
+| **PyPDF** | PDF text extraction | High-speed in-memory PDF parsing |
+| **python-docx** | Word text extraction | In-memory .docx document parsing |
+| **scikit-learn** | Machine learning engine | TF-IDF vectorization and cosine similarity |
+| **sentence-transformers** | Neural embeddings | Semantic similarity using MiniLM-L6-v2 |
+| **PyTorch & NumPy** | Math & tensor acceleration | Fast vector math and dot-product calculations |
+| **ReportLab** | PDF generation | Compiles executive candidate summary reports |
+| **smtplib** | Email delivery | Automated candidate shortlist notifications |
 
 ### Frontend (Client-Side — Browser)
 
 | Technology | What It Does |
 |---|---|
-| **HTML5** | Page structure and content |
-| **CSS3** | Styling, animations, responsive layout |
-| **Vanilla JavaScript** | Interactive behavior — file upload, API calls, result rendering |
-| **SVG** | Circular score gauge graphics |
+| **HTML5** | Semantic structure, accessibility, and forms |
+| **CSS3** | Modern dark-mode palette, glassmorphism, responsive grid |
+| **Vanilla JavaScript** | Asynchronous fetch calls, drag-and-drop, dynamic DOM updates |
+| **Chart.js** | Interactive multi-dimensional radar comparison charts |
+| **SVG** | Circular score gauges and vector icons |
 
 ### Key Python Modules & Imports Explained
 
