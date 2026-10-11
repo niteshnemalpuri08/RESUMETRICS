@@ -328,7 +328,7 @@
       <h1>ResuMetrics</h1>
     </div>
     <div class="nav-links">
-      <a href="{{ url_for('demo_login') }}" style="color: #60a5fa; font-weight: 600; text-decoration: none; padding: 8px 16px; border: 1px solid rgba(96,165,250,0.4); border-radius: 20px; transition: all 0.3s;">⚡ Live Demo</a>
+      <a href="{{ url_for('dashboard') }}" style="color: #60a5fa; font-weight: 600; text-decoration: none; padding: 8px 16px; border: 1px solid rgba(96,165,250,0.4); border-radius: 20px; transition: all 0.3s;">⚡ Open App</a>
       <a href="{{ url_for('login') }}" class="btn-login">Sign In</a>
       <a href="{{ url_for('register') }}" class="btn-glow">Get Started</a>
     </div>
@@ -341,9 +341,9 @@
       Automate resume screening with advanced semantic matching, detect career fast-trackers, and completely eliminate bias. Built for modern tech recruiters and ambitious applicants.
     </p>
     <div class="hero-actions">
-      <a href="{{ url_for('demo_login') }}" class="btn-glow" style="padding: 16px 36px; font-size: 1.1rem; background: linear-gradient(135deg, #2563eb, #7c3aed);">⚡ Instant Demo (Recruiter)</a>
-      <a href="{{ url_for('demo_login', role='applicant') }}" style="padding: 16px 32px; font-size: 1.1rem; color: #60a5fa; border: 1px solid rgba(96,165,250,0.5); border-radius: 30px; text-decoration: none; transition: all 0.3s;">Try as Applicant</a>
-      <a href="#features" style="padding: 16px 28px; font-size: 1.1rem; color: #fff; border: 1px solid rgba(255,255,255,0.2); border-radius: 30px; text-decoration: none; transition: background 0.3s;">Features</a>
+      <a href="{{ url_for('dashboard') }}" class="btn-glow" style="padding: 16px 36px; font-size: 1.1rem; background: linear-gradient(135deg, #2563eb, #7c3aed);">⚡ Launch App (Recruiter)</a>
+      <a href="{{ url_for('dashboard', role='applicant') }}" style="padding: 16px 32px; font-size: 1.1rem; color: #60a5fa; border: 1px solid rgba(96,165,250,0.5); border-radius: 30px; text-decoration: none; transition: all 0.3s;">Try as Applicant</a>
+      <a href="{{ url_for('login') }}" style="padding: 16px 28px; font-size: 1.1rem; color: #fff; border: 1px solid rgba(255,255,255,0.2); border-radius: 30px; text-decoration: none; transition: background 0.3s;">Sign In</a>
     </div>
   </section>
 
