@@ -170,7 +170,7 @@ def _build_related_lookup(groups):
 RELATED_SKILLS_LOOKUP = _build_related_lookup(RELATED_SKILLS_GROUPS)
 
 COMBINED_ALIAS_PATTERN = re.compile(
-    r'\b(?:c\+\+|c#|\.net|node\.js|react\.js|vue\.js|angular\.js|ci/cd|ui/ux|restful|rest api)\b',
+    r'(?<![a-zA-Z0-9])(?:c\+\+|c#|\.net|node\.js|react\.js|vue\.js|angular\.js|ci/cd|ui/ux|restful|rest api)(?![a-zA-Z0-9])',
     re.IGNORECASE
 )
 
