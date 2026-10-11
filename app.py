@@ -240,6 +240,20 @@ def login():
     return render_template('login.html')
 
 
+@app.route('/demo-login')
+def demo_login():
+    """1-Click Instant Demo Login so any visitor on the live website can test all features immediately."""
+    role = request.args.get('role', 'recruiter').strip().lower()
+    if role not in ('admin', 'recruiter', 'viewer', 'applicant'):
+        role = 'recruiter'
+    session['user_id'] = 999 if role == 'recruiter' else 998
+    session['user_name'] = 'Demo Recruiter' if role == 'recruiter' else 'Demo Applicant'
+    session['user_email'] = f'demo.{role}@resumetrics.ai'
+    session['user_role'] = role
+    flash(f'Signed in as {session["user_name"]} ({role.title()} Role). Enjoy exploring ResuMetrics!', 'info')
+    return redirect(url_for('dashboard'))
+
+
 @app.route('/privacy')
 def privacy():
     return render_template('privacy.html')
