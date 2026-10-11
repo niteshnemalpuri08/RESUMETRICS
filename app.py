@@ -54,6 +54,10 @@ app = Flask(
 )
 app.url_map.strict_slashes = False
 app.secret_key = os.environ.get('SECRET_KEY', 'resumetrics-secret-key-change-in-prod')
+app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
+if os.environ.get('VERCEL'):
+    app.config['SESSION_COOKIE_SECURE'] = True
+
 
 # ---------------------------------------------------------------------------
 # MySQL / TiDB Database Configuration & Initialization
@@ -198,13 +202,13 @@ def role_required(*roles):
 # ---------------------------------------------------------------------------
 # Auth Routes
 # ---------------------------------------------------------------------------
-@app.route('/')
 @app.route('/home')
 @app.route('/index')
 @app.route('/index.html')
 @app.route('/landing')
 @app.route('/api/index')
 @app.route('/api/index.py')
+@app.route('/')
 def home():
     if 'user_id' in session:
         return redirect(url_for('dashboard'))
@@ -340,8 +344,8 @@ def logout():
 # ---------------------------------------------------------------------------
 # Main Application Routes (Protected)
 # ---------------------------------------------------------------------------
-@app.route('/dashboard')
 @app.route('/app')
+@app.route('/dashboard')
 @login_required
 def dashboard():
     user_role = session.get('user_role', 'recruiter')
