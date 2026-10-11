@@ -58,6 +58,45 @@ app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 if os.environ.get('VERCEL'):
     app.config['SESSION_COOKIE_SECURE'] = True
 
+import urllib.parse
+from werkzeug.middleware.proxy_fix import ProxyFix
+
+class VercelRoutingMiddleware:
+    """
+    Guarantees seamless route resolution on Vercel.
+    Extracts the rewritten __route__ parameter, HTTP_X_MATCHED_PATH, or PATH_INFO.
+    """
+    def __init__(self, wsgi_app):
+        self.wsgi_app = wsgi_app
+
+    def __call__(self, environ, start_response):
+        qs = environ.get('QUERY_STRING', '')
+        parsed = urllib.parse.parse_qs(qs, keep_blank_values=True)
+        if '__route__' in parsed:
+            route = parsed.pop('__route__')[0]
+            clean_qs = urllib.parse.urlencode([(k, v) for k, vals in parsed.items() for v in vals])
+            environ['QUERY_STRING'] = clean_qs
+            clean_route = '/' + route.lstrip('/')
+            environ['PATH_INFO'] = clean_route if clean_route != '' else '/'
+        elif environ.get('HTTP_X_MATCHED_PATH'):
+            raw = environ['HTTP_X_MATCHED_PATH'].split('?')[0]
+            if not raw.startswith('/'):
+                raw = '/' + raw
+            environ['PATH_INFO'] = raw
+        else:
+            path = environ.get('PATH_INFO', '')
+            for prefix in ('/api/index.py', '/api/index'):
+                if path.startswith(prefix):
+                    rem = path[len(prefix):]
+                    environ['PATH_INFO'] = rem if rem.startswith('/') else ('/' + rem if rem else '/')
+                    break
+
+        return self.wsgi_app(environ, start_response)
+
+app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1)
+app.wsgi_app = VercelRoutingMiddleware(app.wsgi_app)
+
+
 
 # ---------------------------------------------------------------------------
 # MySQL / TiDB Database Configuration & Initialization
@@ -295,6 +334,8 @@ def role_required(*roles):
 @app.route('/index')
 @app.route('/index.html')
 @app.route('/landing')
+@app.route('/api/index')
+@app.route('/api/index.py')
 @app.route('/')
 def home():
     if 'user_id' in session and session.get('user_id') not in (998, 999):
@@ -309,7 +350,7 @@ def favicon():
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
-    if 'user_id' in session:
+    if 'user_id' in session and session.get('user_id') not in (998, 999):
         return redirect(url_for('dashboard'))
 
     if request.method == 'POST':
@@ -367,7 +408,7 @@ def terms():
 
 @app.route('/register', methods=['GET', 'POST'])
 def register():
-    if 'user_id' in session:
+    if 'user_id' in session and session.get('user_id') not in (998, 999):
         return redirect(url_for('dashboard'))
 
     if request.method == 'POST':
@@ -995,6 +1036,8 @@ def api_analyze():
 
 @app.errorhandler(404)
 def not_found_error(e):
+    if request.path.rstrip('/') in ('/api/index', '/api/index.py'):
+        return render_template('landing.html')
     if request.path.startswith('/api/'):
         return jsonify({'error': 'Endpoint not found', 'path': request.path}), 404
     return redirect(url_for('dashboard'))
