@@ -52,6 +52,7 @@ app = Flask(
     template_folder=os.path.join(BASE_DIR, 'templates'),
     static_folder=os.path.join(BASE_DIR, 'static')
 )
+app.url_map.strict_slashes = False
 app.secret_key = os.environ.get('SECRET_KEY', 'resumetrics-secret-key-change-in-prod')
 
 # ---------------------------------------------------------------------------
@@ -198,10 +199,21 @@ def role_required(*roles):
 # Auth Routes
 # ---------------------------------------------------------------------------
 @app.route('/')
+@app.route('/home')
+@app.route('/index')
+@app.route('/index.html')
+@app.route('/landing')
+@app.route('/api/index')
+@app.route('/api/index.py')
 def home():
     if 'user_id' in session:
         return redirect(url_for('dashboard'))
     return render_template('landing.html')
+
+
+@app.route('/favicon.ico')
+def favicon():
+    return ('', 204)
 
 
 @app.route('/login', methods=['GET', 'POST'])
@@ -329,6 +341,7 @@ def logout():
 # Main Application Routes (Protected)
 # ---------------------------------------------------------------------------
 @app.route('/dashboard')
+@app.route('/app')
 @login_required
 def dashboard():
     user_role = session.get('user_role', 'recruiter')
@@ -874,6 +887,15 @@ def api_analyze():
     LAST_REPORT['generated_at'] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     return jsonify({'candidates': results})
+
+@app.errorhandler(404)
+def not_found_error(e):
+    if request.path.startswith('/api/v1/'):
+        return jsonify({'error': 'Endpoint not found', 'path': request.path}), 404
+    if 'user_id' in session:
+        return redirect(url_for('dashboard'))
+    return redirect(url_for('home'))
+
 
 @app.errorhandler(413)
 def file_too_large(e):
