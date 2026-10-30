@@ -2308,3 +2308,63 @@ input[type="range"]::-moz-range-track {
   background: var(--bg-card);
   color: var(--text);
 }
+
+/* ============================================================
+   DEMO BANNER & HISTORY COMPONENT STYLES
+   ============================================================ */
+.demo-banner {
+  background: linear-gradient(135deg, rgba(37, 99, 235, 0.12), rgba(147, 51, 234, 0.12));
+  border: 1px solid rgba(59, 130, 246, 0.25);
+  border-radius: var(--radius-lg);
+  padding: 18px 24px;
+  margin-bottom: 24px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 20px;
+  flex-wrap: wrap;
+  transition: border-color var(--duration-sm) ease, box-shadow var(--duration-sm) ease;
+}
+
+.demo-banner:hover {
+  border-color: rgba(59, 130, 246, 0.45);
+  box-shadow: 0 4px 20px rgba(37, 99, 235, 0.15);
+}
+
+.history-item {
+  background: rgba(22, 22, 31, 0.7);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 18px 20px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  transition: border-color 0.2s ease, transform 0.2s ease;
+}
+
+.history-item:hover {
+  border-color: var(--border-strong);
+  transform: translateY(-1px);
+}
+
+.kanban-card {
+  background: rgba(28, 28, 38, 0.95);
+  padding: 14px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  cursor: grab;
+  user-select: none;
+  transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+}
+
+.kanban-card:hover {
+  transform: translateY(-2px);
+  border-color: var(--accent);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.kanban-card:active {
+  cursor: grabbing;
+}

@@ -47,9 +47,25 @@
     <button class="tab-btn" data-tab="tab-pipeline" id="tab-btn-pipeline">ATS Pipeline</button>
     <button class="tab-btn" data-tab="tab-analytics" id="tab-btn-analytics">Analytics</button>
     <button class="tab-btn" data-tab="tab-chat" id="tab-btn-chat">Ask AI</button>
+    <button class="tab-btn" data-tab="tab-history" id="tab-btn-history">History</button>
   </nav>
 
   <div id="tab-upload" class="tab-pane active">
+    <!-- 1-Click Instant Demo Banner -->
+    <div class="demo-banner" style="background: linear-gradient(135deg, rgba(37, 99, 235, 0.15), rgba(147, 51, 234, 0.15)); border: 1px solid rgba(59, 130, 246, 0.3); border-radius: var(--radius-lg); padding: 18px 24px; margin-bottom: 24px; display: flex; justify-content: space-between; align-items: center; gap: 20px; flex-wrap: wrap;">
+      <div>
+        <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 6px;">
+          <span style="background: var(--accent); color: white; font-size: 0.72rem; font-weight: 700; padding: 2px 8px; border-radius: 12px; text-transform: uppercase;">1-Click Demo</span>
+          <h3 style="margin: 0; font-size: 1.05rem; color: #fff;">Evaluate 20 Sample Resumes Instantly</h3>
+        </div>
+        <p style="margin: 0; color: var(--text-muted); font-size: 0.88rem;">Load 20 pre-generated technical candidate profiles with full job requirements to explore scoring, ATS pipeline, and analytics.</p>
+      </div>
+      <button type="button" id="load-sample-btn" class="primary-btn" style="width: auto; padding: 10px 20px; font-size: 0.88rem; white-space: nowrap;">
+        <span class="btn-label">⚡ Load Demo Candidates</span>
+        <span class="spinner" hidden></span>
+      </button>
+    </div>
+
     <!-- INPUT PANEL -->
     <section class="panel input-panel">
     <h2>Job Requirements</h2>
@@ -229,6 +245,28 @@
         <div class="kanban-column" data-status="rejected" style="flex: 1; min-width: 250px; background: rgba(0,0,0,0.3); border-radius: var(--radius-lg); padding: 16px; border: 1px solid rgba(255,255,255,0.05);">
           <h3 style="font-size: 1rem; color: var(--text); margin-top: 0; border-bottom: 2px solid var(--danger); padding-bottom: 8px;">4. Rejected (<span class="col-count">0</span>)</h3>
           <div class="kanban-dropzone" style="min-height: 400px; display: flex; flex-direction: column; gap: 12px; margin-top: 12px;"></div>
+        </div>
+      </div>
+  </div> <!-- Close tab-pipeline -->
+
+  <div id="tab-history" class="tab-pane">
+    <section class="panel">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; border-bottom: 1px solid var(--border); padding-bottom: 14px; flex-wrap: wrap; gap: 12px;">
+        <div>
+          <h2 style="margin:0; border:none; padding:0;">Screening Run History</h2>
+          <p style="color: var(--text-muted); font-size: 0.9rem; margin: 4px 0 0;">View, reload, or audit previous candidate screening sessions preserved in the database.</p>
+        </div>
+        <button id="refresh-history-btn" class="secondary-btn" style="font-size: 0.85rem; padding: 6px 14px;">
+          🔄 Refresh History
+        </button>
+      </div>
+      <div id="history-container">
+        <div id="history-loading" style="text-align: center; padding: 40px; color: var(--text-muted);">
+          <span class="spinner" style="display:inline-block; width:16px; height:16px; margin-right:8px;"></span> Loading history...
+        </div>
+        <div id="history-list" class="history-list" style="display: flex; flex-direction: column; gap: 12px;" hidden></div>
+        <div id="history-empty" style="text-align: center; padding: 40px; color: var(--text-muted);" hidden>
+          <p>No past analysis runs recorded yet. Analyze some resumes to build history!</p>
         </div>
       </div>
     </section>
@@ -458,19 +496,19 @@
       </div>
       <div class="email-form-grid">
         <div class="email-field">
-          <label for="smtp-email">Your Email (SMTP)</label>
-          <input type="email" id="smtp-email" value="niteshnemalpuri17@gmail.com" readonly style="background: var(--bg-subtle); color: var(--text-faint); cursor: not-allowed;" />
+          <label for="smtp-email">Sender Email (SMTP)</label>
+          <input type="email" id="smtp-email" placeholder="e.g. recruiter@yourcompany.com" />
         </div>
         <div class="email-field">
-          <label for="smtp-password">Password</label>
-          <input type="password" id="smtp-password" value="glbvwnjvsbsypncr" readonly style="background: var(--bg-subtle); color: var(--text-faint); cursor: not-allowed;" />
+          <label for="smtp-password">App Password (Optional)</label>
+          <input type="password" id="smtp-password" placeholder="Leave blank for Demo Simulation mode" />
         </div>
       </div>
       
-      <div class="email-field" style="margin-bottom: 20px; padding: 12px; background: rgba(252, 186, 3, 0.1); border: 1px dashed rgba(252, 186, 3, 0.5); border-radius: 8px;">
-        <label for="demo-redirect-email" style="color: #fcba03;">🧪 Demo Mode: Redirect all emails to (Optional)</label>
-        <input type="email" id="demo-redirect-email" value="niteshnemalpuri17@gmail.com" placeholder="Leave empty to send to real candidate emails" style="margin-top: 6px;" />
-        <small style="color: var(--text-muted); font-size: 0.75rem; display: block; margin-top: 4px;">If filled, the system detects the candidate's real email but forwards the message here for presentation purposes.</small>
+      <div class="email-field" style="margin-bottom: 20px; padding: 12px; background: rgba(56, 189, 248, 0.08); border: 1px dashed rgba(56, 189, 248, 0.3); border-radius: 8px;">
+        <label for="demo-redirect-email" style="color: var(--primary-light);">🧪 Test / Demo Recipient (Optional)</label>
+        <input type="email" id="demo-redirect-email" placeholder="e.g. your-email@example.com (Redirect all test emails here)" style="margin-top: 6px;" />
+        <small style="color: var(--text-muted); font-size: 0.75rem; display: block; margin-top: 4px;">If left blank or password is empty, invitations are processed in safe Simulation Mode.</small>
       </div>
 
       <div class="email-field">

@@ -133,6 +133,9 @@ class SQLiteCursorProxy:
     def close(self):
         return self._cursor.close()
 
+    def __getattr__(self, name):
+        return getattr(self._cursor, name)
+
 class SQLiteConnectionProxy:
     """Adapts SQLite connection to behave identically to PyMySQL connection."""
     def __init__(self, conn):
@@ -150,6 +153,9 @@ class SQLiteConnectionProxy:
     def close(self):
         return self._conn.close()
 
+    def __getattr__(self, name):
+        return getattr(self._conn, name)
+
 def get_ssl_config():
     """Detect appropriate SSL options for TiDB Cloud / Aiven on Vercel or cloud."""
     if not (os.environ.get('VERCEL') or os.environ.get('MYSQL_SSL')):
@@ -166,11 +172,24 @@ def get_ssl_config():
             return {'ca': path}
     return {'check_hostname': False}
 
+_MYSQL_FAILS = 0
+_MYSQL_LAST_FAIL_TIME = 0
+
 def get_db_connection():
     """
     Connects to the user's MySQL account by default.
     Falls back to SQLite seamlessly if MySQL is unreachable (e.g. on serverless cloud).
+    Includes failure backoff to prevent repeated connection latency when offline.
     """
+    global _MYSQL_FAILS, _MYSQL_LAST_FAIL_TIME
+    now = datetime.datetime.now().timestamp()
+
+    # If MySQL previously failed within the last 30 seconds, bypass directly to fast SQLite
+    if _MYSQL_FAILS > 0 and (now - _MYSQL_LAST_FAIL_TIME) < 30:
+        sqlite_file = '/tmp/resumetrics.db' if os.environ.get('VERCEL') else os.path.join(BASE_DIR, 'resumetrics.db')
+        conn = sqlite3.connect(sqlite_file, check_same_thread=False, timeout=15)
+        return SQLiteConnectionProxy(conn)
+
     try:
         ssl_conf = get_ssl_config()
         kwargs = {
@@ -179,20 +198,64 @@ def get_db_connection():
             'user': MYSQL_USER,
             'password': MYSQL_PASSWORD,
             'database': MYSQL_DB,
-            'connect_timeout': 3
+            'connect_timeout': 2
         }
         if ssl_conf:
             kwargs['ssl'] = ssl_conf
-        return pymysql.connect(**kwargs)
+        conn = pymysql.connect(**kwargs)
+        _MYSQL_FAILS = 0
+        return conn
     except Exception as mysql_err:
+        _MYSQL_FAILS += 1
+        _MYSQL_LAST_FAIL_TIME = now
         # Seamless SQLite fallback so app never crashes
         sqlite_file = '/tmp/resumetrics.db' if os.environ.get('VERCEL') else os.path.join(BASE_DIR, 'resumetrics.db')
-        conn = sqlite3.connect(sqlite_file)
+        conn = sqlite3.connect(sqlite_file, check_same_thread=False, timeout=15)
         return SQLiteConnectionProxy(conn)
+
+def init_sqlite_schema():
+    """Ensure SQLite fallback schema is always synchronized and ready."""
+    try:
+        sqlite_file = '/tmp/resumetrics.db' if os.environ.get('VERCEL') else os.path.join(BASE_DIR, 'resumetrics.db')
+        conn = sqlite3.connect(sqlite_file, check_same_thread=False, timeout=15)
+        cursor = conn.cursor()
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS candidates (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                filename TEXT UNIQUE,
+                extracted_text TEXT,
+                analyzed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                full_name TEXT NOT NULL,
+                email TEXT UNIQUE NOT NULL,
+                password_hash TEXT NOT NULL,
+                role TEXT NOT NULL DEFAULT 'recruiter',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS analysis_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                job_description TEXT,
+                candidates_json TEXT,
+                analyzed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"Notice initializing SQLite schema: {e}")
 
 def init_db():
     conn = None
     try:
+        # Always ensure SQLite schema is primed
+        init_sqlite_schema()
+
         # Create database if it doesn't exist on local MySQL
         if not os.environ.get('VERCEL') and MYSQL_HOST == 'localhost':
             try:
@@ -201,7 +264,7 @@ def init_db():
                     port=MYSQL_PORT,
                     user=MYSQL_USER,
                     password=MYSQL_PASSWORD,
-                    connect_timeout=3
+                    connect_timeout=2
                 )
                 cursor = raw_conn.cursor()
                 cursor.execute(f"CREATE DATABASE IF NOT EXISTS {MYSQL_DB}")
@@ -215,32 +278,7 @@ def init_db():
         cursor = conn.cursor()
 
         if isinstance(conn, SQLiteConnectionProxy):
-            cursor.execute('''
-                CREATE TABLE IF NOT EXISTS candidates (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    filename TEXT UNIQUE,
-                    extracted_text TEXT,
-                    analyzed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-            ''')
-            cursor.execute('''
-                CREATE TABLE IF NOT EXISTS users (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    full_name TEXT NOT NULL,
-                    email TEXT UNIQUE NOT NULL,
-                    password_hash TEXT NOT NULL,
-                    role TEXT NOT NULL DEFAULT 'recruiter',
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-            ''')
-            cursor.execute('''
-                CREATE TABLE IF NOT EXISTS analysis_history (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    job_description TEXT,
-                    candidates_json TEXT,
-                    analyzed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-            ''')
+            init_sqlite_schema()
         else:
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS candidates (
@@ -637,7 +675,23 @@ def analyze_resumes():
     LAST_REPORT['candidates'] = results
     LAST_REPORT['generated_at'] = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
 
-    return jsonify({'candidates': results, 'skipped': skipped_files})
+    # Persist screening run into analysis_history in MySQL / SQLite
+    import json
+    history_id = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            'INSERT INTO analysis_history (job_description, candidates_json) VALUES (%s, %s)',
+            (job_skills_input, json.dumps(results))
+        )
+        conn.commit()
+        history_id = cursor.lastrowid
+        conn.close()
+    except Exception as hist_err:
+        print(f"Notice saving analysis history: {hist_err}")
+
+    return jsonify({'candidates': results, 'skipped': skipped_files, 'history_id': history_id})
 
 
 # ---------------------------------------------------------------------------
@@ -646,7 +700,7 @@ def analyze_resumes():
 @app.route('/send-shortlist-email', methods=['POST'])
 @role_required('admin', 'recruiter')
 def send_shortlist_email():
-    """Send shortlist notification emails to selected candidates."""
+    """Send shortlist notification emails to selected candidates with live SMTP or Demo Simulation."""
     data = request.get_json()
     if not data:
         return jsonify({'error': 'No data provided'}), 400
@@ -654,17 +708,30 @@ def send_shortlist_email():
     candidates = data.get('candidates', [])
     subject = data.get('subject', 'Interview Invitation - ResuMetrics')
     body_template = data.get('body', '')
-    smtp_email = data.get('smtp_email', '')
-    smtp_password = data.get('smtp_password', '')
+    smtp_email = (data.get('smtp_email', '') or os.environ.get('SMTP_EMAIL', '')).strip()
+    smtp_password = (data.get('smtp_password', '') or os.environ.get('SMTP_PASSWORD', '')).strip()
     demo_email = data.get('demo_email', '').strip()
-    smtp_host = data.get('smtp_host', 'smtp.gmail.com')
-    smtp_port = int(data.get('smtp_port', 587))
+    smtp_host = data.get('smtp_host', '') or os.environ.get('SMTP_HOST', 'smtp.gmail.com')
+    smtp_port = int(data.get('smtp_port') or os.environ.get('SMTP_PORT', 587))
+    is_simulation = data.get('is_simulation', False) or not smtp_password
 
     if not candidates:
         return jsonify({'error': 'No candidates selected'}), 400
 
-    if not smtp_email or not smtp_password:
-        return jsonify({'error': 'SMTP credentials are required. Enter your email and app password.'}), 400
+    # If no SMTP password provided, operate seamlessly in Simulation / Demo Mode
+    if is_simulation:
+        sent = []
+        for candidate in candidates:
+            orig_email = candidate.get('email', '')
+            name = candidate.get('name', 'Candidate')
+            target_email = demo_email if demo_email else (orig_email if orig_email and '@' in orig_email else 'candidate@company.com')
+            sent.append({'name': name, 'email': target_email, 'status': 'Simulated'})
+        return jsonify({
+            'sent': sent,
+            'failed': [],
+            'simulated': True,
+            'message': f'Demo Simulation: Successfully prepared and queued personalized interview emails for {len(sent)} candidate(s). (To send live TLS emails, provide an SMTP password).'
+        })
 
     sent = []
     failed = []
@@ -676,7 +743,7 @@ def send_shortlist_email():
             server = smtplib.SMTP(smtp_host, smtp_port, timeout=15)
             server.ehlo()
             server.starttls()
-            
+
         server.login(smtp_email, smtp_password)
 
         for candidate in candidates:
@@ -686,11 +753,10 @@ def send_shortlist_email():
             if not original_email or original_email == 'Not found' or '@' not in original_email:
                 failed.append({'name': name, 'reason': 'No valid email found'})
                 continue
-                
-            # If demo mode is active, redirect to the demo email. Otherwise, send to the real candidate.
+
+            # If demo redirect is specified, route there; otherwise real candidate email
             email = demo_email if demo_email else original_email
 
-            # Personalize the body (using the original email just in case they want to see it in the template)
             personalized_body = body_template.replace('{name}', name).replace('{email}', original_email).replace('{score}', str(candidate.get('score', '')))
 
             msg = MIMEMultipart()
@@ -712,7 +778,8 @@ def send_shortlist_email():
     return jsonify({
         'sent': sent,
         'failed': failed,
-        'message': f'Successfully sent {len(sent)} email(s). {len(failed)} failed.'
+        'simulated': False,
+        'message': f'Successfully dispatched {len(sent)} live email(s). {len(failed)} failed.'
     })
 
 
@@ -865,7 +932,7 @@ def optimize_jd():
 @app.route('/history', methods=['GET'])
 @role_required('admin', 'recruiter', 'viewer')
 def get_history():
-    """Returns all past analysis runs from the database (for teacher demonstration)."""
+    """Returns all past analysis runs from the database (for demonstration and persistence)."""
     import json
     try:
         conn = get_db_connection()
@@ -873,18 +940,191 @@ def get_history():
         cursor.execute('SELECT id, job_description, analyzed_at, candidates_json FROM analysis_history ORDER BY analyzed_at DESC')
         rows = cursor.fetchall()
         conn.close()
-        
+
         history = []
         for row in rows:
+            try:
+                cands = json.loads(row[3]) if row[3] else []
+                top_name = cands[0]['name'].replace('.pdf', '').replace('.docx', '') if cands else 'None'
+                top_score = cands[0]['score'] if cands else 0
+            except Exception:
+                cands = []
+                top_name = 'N/A'
+                top_score = 0
+
             history.append({
                 'id': row[0],
                 'job_description': row[1],
-                'analyzed_at': row[2],
-                'candidates_analyzed': len(json.loads(row[3]))
+                'analyzed_at': str(row[2]) if row[2] else 'Recent',
+                'candidates_analyzed': len(cands),
+                'top_candidate': top_name,
+                'top_score': top_score
             })
         return jsonify({'analysis_history': history})
     except Exception as e:
         return jsonify({'analysis_history': [], 'notice': f'Database notice: {e}'})
+
+
+@app.route('/history/<int:history_id>', methods=['GET'])
+@role_required('admin', 'recruiter', 'viewer')
+def load_history_run(history_id):
+    """Loads a past analysis run from the database into the active dashboard session."""
+    import json
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute('SELECT job_description, candidates_json, analyzed_at FROM analysis_history WHERE id = %s', (history_id,))
+        row = cursor.fetchone()
+        conn.close()
+
+        if not row:
+            return jsonify({'error': 'Analysis run not found'}), 404
+
+        job_desc = row[0]
+        cands = json.loads(row[1]) if row[1] else []
+
+        # Set into active session cache
+        LAST_REPORT['job_skills_input'] = job_desc
+        LAST_REPORT['candidates'] = cands
+        LAST_REPORT['generated_at'] = str(row[2])
+
+        return jsonify({
+            'success': True,
+            'job_description': job_desc,
+            'candidates': cands,
+            'analyzed_at': str(row[2])
+        })
+    except Exception as e:
+        return jsonify({'error': f'Failed loading history run: {e}'}), 500
+
+
+@app.route('/history/<int:history_id>', methods=['DELETE'])
+@role_required('admin', 'recruiter')
+def delete_history_run(history_id):
+    """Deletes a past analysis run from the database."""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute('DELETE FROM analysis_history WHERE id = %s', (history_id,))
+        conn.commit()
+        conn.close()
+        return jsonify({'success': True, 'message': 'Run removed from history'})
+    except Exception as e:
+        return jsonify({'error': f'Failed deleting history run: {e}'}), 500
+
+
+@app.route('/api/samples/load', methods=['GET', 'POST'])
+@login_required
+def load_samples():
+    """
+    1-Click Instant Demo: Automatically reads the 20 pre-generated sample resumes
+    from sample_resumes/ and evaluates them against full-stack cloud requirements.
+    Populates rankings, ATS Kanban, and analytics in sub-second time.
+    """
+    samples_dir = os.path.join(BASE_DIR, 'sample_resumes')
+    if not os.path.exists(samples_dir):
+        return jsonify({'error': 'Sample resumes directory not found'}), 404
+
+    sample_files = [f for f in os.listdir(samples_dir) if f.lower().endswith(('.pdf', '.docx'))]
+    if not sample_files:
+        return jsonify({'error': 'No sample resumes found in sample_resumes/'}), 404
+
+    job_requirements = (
+        "Senior Full-Stack Cloud Engineer: Python, React, AWS, Docker, Microservices, "
+        "SQL, Node.js, CI/CD, Git, Kubernetes, REST APIs"
+    )
+
+    filenames = []
+    raw_texts = []
+    cleaned_texts = []
+
+    for fn in sample_files:
+        fpath = os.path.join(samples_dir, fn)
+        try:
+            with open(fpath, 'rb') as f:
+                fbytes = f.read()
+            ext = fn.rsplit('.', 1)[-1].lower()
+            text = extract_text(fbytes, ext)
+            if text and text.strip():
+                filenames.append(fn)
+                raw_texts.append(text)
+                cleaned_texts.append(clean_text(text))
+        except Exception as e:
+            print(f"Notice loading sample {fn}: {e}")
+
+    if not filenames:
+        return jsonify({'error': 'Failed extracting text from sample resumes'}), 500
+
+    # Save to candidates table
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.executemany(
+            'REPLACE INTO candidates (filename, extracted_text) VALUES (%s, %s)',
+            list(zip(filenames, raw_texts))
+        )
+        conn.commit()
+        conn.close()
+    except Exception as db_err:
+        print(f"Notice saving candidates to DB: {db_err}")
+
+    # Run hybrid scoring
+    cleaned_job = clean_text(job_requirements)
+    job_skills = _extract_skill_phrases(job_requirements)
+
+    w_tfidf, w_skill, w_dense = 0.40, 0.35, 0.25
+    all_insights = [extract_keyword_insights(c_t, job_skills) for c_t in cleaned_texts]
+    skill_matched_lists = [ins['matched_skills'] for ins in all_insights]
+    related_skill_counts = [len(ins.get('related_skills', [])) for ins in all_insights]
+
+    tfidf_scores = calculate_tfidf_scores(cleaned_texts, cleaned_job)
+    dense_scores = calculate_dense_scores(raw_texts, job_requirements)
+    rrf_scores = compute_rrf_scores(
+        tfidf_scores, dense_scores,
+        job_skills=job_skills, cleaned_resumes=cleaned_texts,
+        w_tfidf=w_tfidf, w_skill=w_skill, w_dense=w_dense,
+        skill_matches=skill_matched_lists,
+        related_skill_counts=related_skill_counts
+    )
+
+    results = []
+    for fn, raw_t, clean_t, hybrid_s, tf_s, d_s, insights in zip(
+        filenames, raw_texts, cleaned_texts, rrf_scores, tfidf_scores, dense_scores, all_insights
+    ):
+        results.append(
+            build_candidate_report(
+                fn, raw_t, clean_t, job_skills, hybrid_s, tf_s, d_s, precomputed_insights=insights
+            )
+        )
+
+    results = sorted(results, key=lambda x: x['score'], reverse=True)
+
+    LAST_REPORT['job_skills_input'] = job_requirements
+    LAST_REPORT['candidates'] = results
+    LAST_REPORT['generated_at'] = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+
+    # Save history run
+    import json
+    history_id = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            'INSERT INTO analysis_history (job_description, candidates_json) VALUES (%s, %s)',
+            (job_requirements, json.dumps(results))
+        )
+        conn.commit()
+        history_id = cursor.lastrowid
+        conn.close()
+    except Exception as e:
+        print(f"Notice saving sample run to history: {e}")
+
+    return jsonify({
+        'candidates': results,
+        'job_description': job_requirements,
+        'history_id': history_id,
+        'total_loaded': len(results)
+    })
 
 
 @app.route('/analytics', methods=['GET'])
@@ -921,37 +1161,136 @@ def analytics():
 @app.route('/chat', methods=['POST'])
 @role_required('admin', 'recruiter', 'viewer')
 def chat_bot():
-    """RAG Chatbot over resumes."""
+    """
+    Intelligent AI Hiring Assistant: Answers questions over active candidates and past resumes.
+    Understands skills, experience, fast trackers, culture fit, universities, and degrees.
+    """
     data = request.get_json()
-    query = data.get('query', '') if data else ''
-    
+    query = (data.get('query', '') if data else '').strip()
+
     if not query:
-         return jsonify({"answer": "Please ask a question."})
-    
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        cursor.execute('SELECT filename, extracted_text FROM candidates ORDER BY analyzed_at DESC LIMIT 50')
-        rows = cursor.fetchall()
-        conn.close()
-    except Exception as e:
-        return jsonify({"answer": f"Database notice: {e}. Semantic database search is unavailable."})
-    
-    if not rows:
-         return jsonify({"answer": "No resumes available to search in the database."})
-    
-    filenames = [r[0] for r in rows]
-    texts = [r[1] for r in rows]
-    
-    scores = calculate_dense_scores(texts, query)
-    
-    # Get top 3
-    top_indices = sorted(range(len(scores)), key=lambda i: scores[i], reverse=True)[:3]
-    top_cands = [filenames[i] for i in top_indices if scores[i] > 10]
-    
-    if top_cands:
-         return jsonify({"answer": f"Based on semantic search, the candidates that best match your query are: {', '.join(top_cands)}."})
-    return jsonify({"answer": "I couldn't find any candidates matching that specific query."})
+        return jsonify({"answer": "Please ask a question about candidates, skills, or experience."})
+
+    q_lower = query.lower()
+
+    # Use active in-memory candidates first if available, else load from DB
+    cands = LAST_REPORT.get('candidates', [])
+
+    if not cands:
+        # Fallback to DB
+        try:
+            conn = get_db_connection()
+            cursor = conn.cursor()
+            cursor.execute('SELECT filename, extracted_text FROM candidates ORDER BY analyzed_at DESC LIMIT 30')
+            rows = cursor.fetchall()
+            conn.close()
+            if rows:
+                filenames = [r[0] for r in rows]
+                texts = [r[1] for r in rows]
+                scores = calculate_dense_scores(texts, query)
+                top_indices = sorted(range(len(scores)), key=lambda i: scores[i], reverse=True)[:3]
+                best = [f"{filenames[i]} (~{scores[i]}% match)" for i in top_indices if scores[i] > 5]
+                if best:
+                    return jsonify({"answer": f"Based on resume text search, the best matching candidate(s) are: {', '.join(best)}."})
+            return jsonify({"answer": "No resumes currently analyzed. Upload resumes or click '⚡ Load Demo Candidates' to begin asking questions!"})
+        except Exception as e:
+            return jsonify({"answer": f"Notice: {e}. Please analyze resumes first."})
+
+    # 1. Top Candidate / Overall Best Fit
+    if any(k in q_lower for k in ['top candidate', 'highest score', 'best match', 'best candidate', 'winner', 'who should i hire', 'recommend']):
+        top = cands[0]
+        top_name = top['name'].replace('.pdf', '').replace('.docx', '').replace('_', ' ')
+        skills_str = ', '.join(top['matched_skills'][:4]) or 'core technical skills'
+        exp_years = top.get('timeline_audit', {}).get('provable_years', 0)
+        return jsonify({
+            "answer": f"🏆 The top-ranked candidate is **{top_name}** with a **{top['score']}% match**. They bring ~{exp_years} years of proven experience with verified skills in {skills_str}. {top.get('tldr_summary', '')}"
+        })
+
+    # 2. Fast Trackers / High Velocity
+    if any(k in q_lower for k in ['fast tracker', 'velocity', 'rapid growth', 'promotion', 'fast track']):
+        fast_trackers = [c for c in cands if c.get('velocity_analysis', {}).get('is_fast_tracker')]
+        if fast_trackers:
+            names = [f"**{c['name'].replace('.pdf','').replace('_',' ')}** ({c['velocity_analysis']['velocity_notes']})" for c in fast_trackers[:3]]
+            return jsonify({
+                "answer": f"🚀 Detected {len(fast_trackers)} Fast Tracker(s) who achieved rapid seniority:\n- " + "\n- ".join(names)
+            })
+        return jsonify({"answer": "No fast-trackers (e.g. Senior/Lead with ≤4 years of provable experience) were detected among current candidates."})
+
+    # 3. Discrepancy / Timeline Audit / Fraud Queries
+    if any(k in q_lower for k in ['fraud', 'timeline', 'discrepancy', 'alert', 'claimed', 'years lie', 'audit']):
+        alerted = [c for c in cands if c.get('timeline_audit', {}).get('timeline_alert')]
+        if alerted:
+            details = [f"**{c['name'].replace('.pdf','').replace('_',' ')}**: {c['timeline_audit']['alert_reason']}" for c in alerted[:3]]
+            return jsonify({
+                "answer": f"⚠️ Timeline Audit flagged {len(alerted)} candidate(s) with experience discrepancies:\n- " + "\n- ".join(details)
+            })
+        return jsonify({"answer": "✅ All screened candidates passed the timeline audit without discrepancies between claimed and provable experience."})
+
+    # 4. Experience / Years Query
+    if any(k in q_lower for k in ['most experience', 'seniority', 'years of experience', 'longest experience', 'highest experience']):
+        sorted_by_exp = sorted(cands, key=lambda c: c.get('timeline_audit', {}).get('provable_years', 0), reverse=True)
+        top_exp = sorted_by_exp[:3]
+        exp_list = [f"**{c['name'].replace('.pdf','').replace('_',' ')}**: ~{c.get('timeline_audit',{}).get('provable_years',0)} years provable experience ({c['score']}% match)" for c in top_exp]
+        return jsonify({
+            "answer": "Candidate experience ranking:\n- " + "\n- ".join(exp_list)
+        })
+
+    # 5. Specific Skill Query (e.g. "Who knows AWS?", "Who has Python?")
+    skills_to_check = [
+        'aws', 'python', 'react', 'docker', 'kubernetes', 'sql', 'microservices',
+        'node.js', 'nodejs', 'ci/cd', 'cicd', 'git', 'java', 'spring', 'fastapi',
+        'machine learning', 'pytorch', 'tensorflow', 'linux', 'terraform', 'cloud'
+    ]
+    detected_skills = [s for s in skills_to_check if s in q_lower]
+
+    if detected_skills:
+        skill = detected_skills[0]
+        matching = []
+        for c in cands:
+            clean_name = c['name'].replace('.pdf', '').replace('.docx', '').replace('_', ' ')
+            matched = [s.lower() for s in c.get('matched_skills', [])]
+            related = [r['required'].lower() for r in c.get('related_skills', [])]
+            if any(skill in m for m in matched):
+                matching.append((clean_name, c['score'], "Exact Match"))
+            elif any(skill in r for r in related):
+                matching.append((clean_name, c['score'], "Related Match"))
+
+        if matching:
+            matching = sorted(matching, key=lambda x: x[1], reverse=True)[:4]
+            lines = [f"**{m[0]}** — {m[1]}% overall match ({m[2]})" for m in matching]
+            return jsonify({
+                "answer": f"Candidates with verified **{skill.upper()}** capabilities:\n- " + "\n- ".join(lines)
+            })
+
+    # 6. Specific Candidate Lookup (e.g. "Tell me about Alex Smith")
+    for c in cands:
+        raw_name = c['name'].lower().replace('.pdf', '').replace('.docx', '').replace('_', ' ')
+        first_word = raw_name.split()[0]
+        if first_word in q_lower and len(first_word) > 2:
+            clean_name = c['name'].replace('.pdf', '').replace('.docx', '').replace('_', ' ')
+            exp = c.get('timeline_audit', {}).get('provable_years', 0)
+            matched = ', '.join(c.get('matched_skills', [])[:5]) or 'None'
+            missing = ', '.join(c.get('missing_skills', [])[:3]) or 'None'
+            salary = c.get('salary_prediction', 'Market competitive')
+            return jsonify({
+                "answer": f"📋 **Candidate Profile: {clean_name}**\n- **Overall Match:** {c['score']}%\n- **Provable Experience:** ~{exp} years\n- **Key Matched Skills:** {matched}\n- **Missing Skills:** {missing}\n- **Estimated Salary:** {salary}\n- **AI Summary:** {c.get('tldr_summary', '')}"
+            })
+
+    # 7. Semantic Search Fallback
+    res_texts = [f"{c['name']} {' '.join(c.get('matched_skills',[]))} {' '.join(c.get('entities',{}).get('job_roles',[]))}" for c in cands]
+    dense_scores = calculate_dense_scores(res_texts, query)
+    top_indices = sorted(range(len(dense_scores)), key=lambda i: dense_scores[i], reverse=True)[:3]
+    top_matches = [cands[i] for i in top_indices if dense_scores[i] > 10]
+
+    if top_matches:
+        lines = [f"**{c['name'].replace('.pdf','').replace('_',' ')}** ({c['score']}% match, {c.get('timeline_audit',{}).get('provable_years',0)} yrs exp)" for c in top_matches]
+        return jsonify({
+            "answer": f"Based on semantic matching for \"{query}\":\n- " + "\n- ".join(lines)
+        })
+
+    return jsonify({
+        "answer": f"I reviewed the {len(cands)} candidates currently analyzed. Could you clarify what specific skill, role, or experience level you'd like to inspect?"
+    })
 
 
 @app.route('/api/v1/analyze', methods=['POST'])
@@ -1033,6 +1372,14 @@ def api_analyze():
     LAST_REPORT['generated_at'] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     return jsonify({'candidates': results})
+
+@app.after_request
+def set_security_headers(response):
+    """Production-grade security headers."""
+    response.headers['X-Content-Type-Options'] = 'nosniff'
+    response.headers['X-Frame-Options'] = 'SAMEORIGIN'
+    response.headers['X-XSS-Protection'] = '1; mode=block'
+    return response
 
 @app.errorhandler(404)
 def not_found_error(e):

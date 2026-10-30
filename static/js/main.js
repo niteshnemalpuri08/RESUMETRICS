@@ -252,6 +252,52 @@
     }
   });
 
+  // 1-Click Demo Samples Loader
+  const loadSampleBtn = document.getElementById('load-sample-btn');
+  if (loadSampleBtn) {
+    loadSampleBtn.addEventListener('click', async () => {
+      const demoLabel = loadSampleBtn.querySelector('.btn-label');
+      const demoSpinner = loadSampleBtn.querySelector('.spinner');
+      loadSampleBtn.disabled = true;
+      if (demoSpinner) demoSpinner.hidden = false;
+      if (demoLabel) demoLabel.textContent = 'Loading 20 Resumes...';
+
+      try {
+        const response = await fetch('/api/samples/load', { method: 'POST' });
+        const data = await response.json();
+        if (response.ok && data.candidates) {
+          if (data.job_description && skillsInput) {
+            skillsInput.value = data.job_description;
+          }
+          lastCandidates = data.candidates;
+          renderResults(lastCandidates);
+          if (typeof renderKanbanBoard === 'function') {
+            renderKanbanBoard(lastCandidates);
+          }
+          exportBtn.hidden = false;
+          if (exportCsvBtn) exportCsvBtn.hidden = false;
+          if (compareBtn) compareBtn.hidden = false;
+          if (shortlistBtn) shortlistBtn.hidden = false;
+          if (selectAllBtn) selectAllBtn.hidden = false;
+          if (resultsFilters) resultsFilters.hidden = false;
+
+          // Switch automatically to rankings tab
+          const resultsTabBtn = document.querySelector('[data-tab="tab-results"]');
+          if (resultsTabBtn) resultsTabBtn.click();
+        } else {
+          alert(data.error || 'Failed loading demo sample candidates.');
+        }
+      } catch (err) {
+        console.error(err);
+        alert('Error loading sample resumes: ' + err.message);
+      } finally {
+        loadSampleBtn.disabled = false;
+        if (demoSpinner) demoSpinner.hidden = true;
+        if (demoLabel) demoLabel.textContent = '⚡ Load Demo Candidates';
+      }
+    });
+  }
+
   function setLoading(isLoading) {
     analyzeBtn.disabled = isLoading || stagedFiles.length === 0 || !skillsInput.value.trim();
     spinner.hidden = !isLoading;
@@ -312,9 +358,10 @@
       card.querySelector('.candidate-email').textContent = `Email: ${candidate.contact.email}`;
       card.querySelector('.candidate-phone').textContent = `Phone: ${candidate.contact.phone}`;
 
-      // Shortlist checkbox stores candidate data
+      // Shortlist checkbox stores candidate data accurately even when filtered
       const checkbox = card.querySelector('.shortlist-checkbox');
-      checkbox.dataset.index = index;
+      const realIdx = lastCandidates.indexOf(candidate);
+      checkbox.dataset.index = realIdx !== -1 ? realIdx : index;
 
       // Timeline alert
       if (candidate.timeline_audit && candidate.timeline_audit.timeline_alert) {
@@ -756,6 +803,135 @@
   }
 
   // =======================================================================
+  // HISTORY MANAGEMENT
+  // =======================================================================
+  const historyListEl = document.getElementById('history-list');
+  const historyLoadingEl = document.getElementById('history-loading');
+  const historyEmptyEl = document.getElementById('history-empty');
+  const refreshHistoryBtn = document.getElementById('refresh-history-btn');
+
+  async function loadHistoryRuns() {
+    if (!historyListEl) return;
+    if (historyLoadingEl) historyLoadingEl.hidden = false;
+    historyListEl.hidden = true;
+    if (historyEmptyEl) historyEmptyEl.hidden = true;
+
+    try {
+      const response = await fetch('/history');
+      const data = await response.json();
+      const runs = data.analysis_history || [];
+
+      if (!runs.length) {
+        if (historyLoadingEl) historyLoadingEl.hidden = true;
+        if (historyEmptyEl) historyEmptyEl.hidden = false;
+        return;
+      }
+
+      historyListEl.innerHTML = '';
+      runs.forEach(run => {
+        const item = document.createElement('div');
+        item.className = 'history-item';
+        item.style = 'background: rgba(22, 22, 31, 0.7); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 18px 20px; display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap; transition: border-color 0.2s;';
+        
+        const cleanJd = (run.job_description || 'General Technical Requirements').replace(/\n+/g, ' ');
+        const truncatedJd = cleanJd.length > 90 ? cleanJd.substring(0, 90) + '...' : cleanJd;
+
+        item.innerHTML = `
+          <div style="flex: 1; min-width: 260px;">
+            <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 6px; flex-wrap: wrap;">
+              <span style="background: rgba(59, 130, 246, 0.15); color: var(--primary-light); font-size: 0.75rem; font-weight: 700; padding: 2px 8px; border-radius: 4px;">Run #${run.id}</span>
+              <span style="color: var(--text-muted); font-size: 0.8rem;">${escapeHtml(run.analyzed_at)}</span>
+              <span style="background: rgba(16, 185, 129, 0.12); color: var(--success); font-size: 0.75rem; font-weight: 600; padding: 2px 8px; border-radius: 12px;">${run.candidates_analyzed} Candidates</span>
+            </div>
+            <div style="font-weight: 600; color: var(--text); font-size: 0.95rem; margin-bottom: 4px;">
+              ${escapeHtml(truncatedJd)}
+            </div>
+            <div style="font-size: 0.82rem; color: var(--text-muted);">
+              Top Match: <strong style="color: var(--text);">${escapeHtml(run.top_candidate || 'N/A')}</strong> (${run.top_score}%)
+            </div>
+          </div>
+          <div style="display: flex; gap: 8px;">
+            <button class="primary-btn reload-history-btn" data-id="${run.id}" style="width: auto; padding: 8px 14px; font-size: 0.82rem;">
+              ⚡ View &amp; Reload
+            </button>
+            <button class="secondary-btn delete-history-btn" data-id="${run.id}" style="padding: 8px 10px; font-size: 0.82rem; color: var(--danger); border-color: rgba(239, 68, 68, 0.3);">
+              🗑️
+            </button>
+          </div>
+        `;
+
+        const reloadBtn = item.querySelector('.reload-history-btn');
+        reloadBtn.addEventListener('click', async () => {
+          reloadBtn.disabled = true;
+          reloadBtn.textContent = 'Loading...';
+          try {
+            const res = await fetch(`/history/${run.id}`);
+            const detail = await res.json();
+            if (res.ok && detail.candidates) {
+              lastCandidates = detail.candidates;
+              if (skillsInput && detail.job_description) {
+                skillsInput.value = detail.job_description;
+              }
+              renderResults(lastCandidates);
+              if (typeof renderKanbanBoard === 'function') {
+                renderKanbanBoard(lastCandidates);
+              }
+              exportBtn.hidden = false;
+              if (exportCsvBtn) exportCsvBtn.hidden = false;
+              if (compareBtn) compareBtn.hidden = false;
+              if (shortlistBtn) shortlistBtn.hidden = false;
+              if (selectAllBtn) selectAllBtn.hidden = false;
+              if (resultsFilters) resultsFilters.hidden = false;
+
+              const resultsTabBtn = document.querySelector('[data-tab="tab-results"]');
+              if (resultsTabBtn) resultsTabBtn.click();
+            } else {
+              alert(detail.error || 'Failed loading run.');
+            }
+          } catch (e) {
+            alert('Error loading history run: ' + e.message);
+          } finally {
+            reloadBtn.disabled = false;
+            reloadBtn.textContent = '⚡ View & Reload';
+          }
+        });
+
+        const deleteBtn = item.querySelector('.delete-history-btn');
+        deleteBtn.addEventListener('click', async () => {
+          if (!confirm(`Delete history run #${run.id}?`)) return;
+          try {
+            const res = await fetch(`/history/${run.id}`, { method: 'DELETE' });
+            if (res.ok) {
+              item.remove();
+              if (historyListEl.children.length === 0 && historyEmptyEl) {
+                historyEmptyEl.hidden = false;
+              }
+            }
+          } catch (e) {
+            console.error(e);
+          }
+        });
+
+        historyListEl.appendChild(item);
+      });
+
+      if (historyLoadingEl) historyLoadingEl.hidden = true;
+      historyListEl.hidden = false;
+    } catch (e) {
+      if (historyLoadingEl) historyLoadingEl.innerHTML = 'Failed loading history.';
+    }
+  }
+
+  if (refreshHistoryBtn) {
+    refreshHistoryBtn.addEventListener('click', loadHistoryRuns);
+  }
+
+  const historyTabBtn = document.querySelector('[data-tab="tab-history"]');
+  if (historyTabBtn) {
+    historyTabBtn.addEventListener('click', loadHistoryRuns);
+  }
+
+  // =======================================================================
   // SIDE-BY-SIDE COMPARISON GRID
   // =======================================================================
   function getSelectedFullCandidates() {
@@ -1044,7 +1220,7 @@
         e.preventDefault();
         zone.style.background = 'transparent';
         const name = e.dataTransfer.getData('text/plain');
-        const card = document.querySelector(`.kanban-card[data-name="${name.replace(/"/g, '\\"')}"]`);
+        const card = Array.from(document.querySelectorAll('.kanban-card')).find(c => c.dataset.name === name);
         if (card) {
           zone.appendChild(card);
           updateKanbanCounts();

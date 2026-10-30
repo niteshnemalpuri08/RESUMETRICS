@@ -43,25 +43,41 @@
     <h2>Apply & Evaluate Resume</h2>
     <p style="color: var(--text-muted); margin-bottom: 20px;">Upload your resume and paste the job description to see if you meet the criteria and get AI suggestions to enhance your resume.</p>
     
+    <div style="background: rgba(59, 130, 246, 0.1); border: 1px solid rgba(59, 130, 246, 0.3); border-radius: 8px; padding: 14px 18px; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; gap: 14px; flex-wrap: wrap;">
+      <div>
+        <span style="background: var(--accent); color: white; font-size: 0.72rem; font-weight: 700; padding: 2px 8px; border-radius: 12px; text-transform: uppercase;">1-Click Demo</span>
+        <strong style="color: var(--text); margin-left: 6px; font-size: 0.95rem;">Test With A Real Sample Profile</strong>
+        <p style="margin: 4px 0 0; color: var(--text-muted); font-size: 0.82rem;">Loads a sample software engineer resume and cloud job requirements instantly.</p>
+      </div>
+      <button type="button" id="applicant-sample-btn" class="secondary-btn" style="width: auto; padding: 8px 16px; font-size: 0.85rem;">
+        ⚡ Load Sample Data
+      </button>
+    </div>
+
     <label for="job-description" class="field-label">Job Description</label>
-    <textarea id="job-description" placeholder="Paste the full job description here..." rows="6"></textarea>
+    <textarea id="job-description" placeholder="Paste the full job description or required skills here..." rows="6"></textarea>
 
     <h2 style="margin-top: 20px;">Upload Your Resume</h2>
     <div id="applicant-dropzone" class="dropzone">
       <input type="file" id="applicant-resume" accept=".pdf,.docx" hidden>
       <div class="dropzone-content">
-        <p>Drag & drop your resume here, or <span class="highlight">browse</span></p>
+        <svg class="upload-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style="width: 36px; height: 36px; color: var(--accent); margin-bottom: 8px;">
+          <path d="M12 16V4M12 4L7 9M12 4L17 9" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+          <path d="M4 16V18C4 19.1046 4.89543 20 6 20H18C19.1046 20 20 19.1046 20 18V16" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        <p><strong>Drag &amp; drop</strong> your resume here, or <span class="highlight" style="color: var(--primary-light); cursor: pointer; text-decoration: underline;">browse files</span></p>
+        <p class="hint" style="color: var(--text-muted); font-size: 0.8rem; margin-top: 4px;">Supports PDF and DOCX</p>
       </div>
     </div>
     <div id="file-list" class="file-list"></div>
 
-    <button id="evaluate-btn" class="primary-btn" style="width: 100%; margin-top: 20px; justify-content: center;">
+    <button id="evaluate-btn" class="primary-btn" style="width: 100%; margin-top: 20px; justify-content: center; padding: 14px;">
       Evaluate My Resume
     </button>
   </section>
 
-  <section id="results-panel" class="panel" style="display: none; margin-top: 20px;">
-    <h2>Evaluation Results</h2>
+  <section id="results-panel" class="panel" style="display: none; margin-top: 24px;">
+    <h2>ATS Compatibility Report</h2>
     <div id="evaluation-content"></div>
   </section>
 </main>
@@ -71,19 +87,68 @@
   const fileInput = document.getElementById('applicant-resume');
   const fileList = document.getElementById('file-list');
   const evaluateBtn = document.getElementById('evaluate-btn');
+  const applicantSampleBtn = document.getElementById('applicant-sample-btn');
   let uploadedFile = null;
 
   dropzone.addEventListener('click', () => fileInput.click());
+  dropzone.addEventListener('dragover', (e) => { e.preventDefault(); dropzone.classList.add('dragover'); });
+  dropzone.addEventListener('dragleave', () => { dropzone.classList.remove('dragover'); });
+  dropzone.addEventListener('drop', (e) => {
+    e.preventDefault();
+    dropzone.classList.remove('dragover');
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      setFile(e.dataTransfer.files[0]);
+    }
+  });
 
   fileInput.addEventListener('change', (e) => {
     if (e.target.files.length > 0) {
-      uploadedFile = e.target.files[0];
-      fileList.innerHTML = `<div class="file-item">
-        <span class="file-name">${uploadedFile.name}</span>
-        <button class="remove-btn" onclick="uploadedFile=null; fileList.innerHTML='';">✕</button>
-      </div>`;
+      setFile(e.target.files[0]);
     }
   });
+
+  function setFile(file) {
+    const ext = file.name.split('.').pop().toLowerCase();
+    if (!['pdf', 'docx'].includes(ext)) {
+      alert("Only PDF and DOCX formats are supported.");
+      return;
+    }
+    uploadedFile = file;
+    fileList.innerHTML = `<div class="file-item" style="display:flex; justify-content:space-between; align-items:center; background:rgba(255,255,255,0.05); padding:10px 14px; border-radius:6px; margin-top:10px;">
+      <span class="file-name" style="font-weight:600; color:var(--text);">${escapeHtml(uploadedFile.name)} (${(uploadedFile.size / 1024).toFixed(1)} KB)</span>
+      <button class="remove-btn" style="background:transparent; border:none; color:var(--danger); font-size:1.1rem; cursor:pointer;" onclick="uploadedFile=null; fileList.innerHTML='';">✕</button>
+    </div>`;
+  }
+
+  function escapeHtml(str) {
+    const div = document.createElement('div');
+    div.textContent = str || '';
+    return div.innerHTML;
+  }
+
+  // 1-Click Sample Test for Applicants
+  if (applicantSampleBtn) {
+    applicantSampleBtn.addEventListener('click', async () => {
+      applicantSampleBtn.disabled = true;
+      applicantSampleBtn.textContent = 'Loading...';
+      try {
+        const jd = "Full-Stack Software Engineer: Python, React, AWS, Docker, Microservices, SQL, Node.js, CI/CD, Git, REST APIs";
+        document.getElementById('job-description').value = jd;
+
+        // Fetch a real sample resume PDF from sample_resumes
+        const res = await fetch('/api/samples/load', { method: 'POST' });
+        const data = await res.json();
+        if (data.candidates && data.candidates.length) {
+          renderResults(data.candidates[0]);
+        }
+      } catch (err) {
+        console.error(err);
+      } finally {
+        applicantSampleBtn.disabled = false;
+        applicantSampleBtn.textContent = '⚡ Load Sample Data';
+      }
+    });
+  }
 
   evaluateBtn.addEventListener('click', async () => {
     const jobDescription = document.getElementById('job-description').value;
@@ -97,34 +162,34 @@
     }
 
     evaluateBtn.disabled = true;
-    evaluateBtn.textContent = 'Analyzing...';
+    evaluateBtn.textContent = 'Analyzing with Hybrid AI...';
     document.getElementById('results-panel').style.display = 'none';
 
     const formData = new FormData();
     formData.append('resumes', uploadedFile);
     formData.append('skills', jobDescription);
-    
+
     try {
       const response = await fetch('/analyze', {
         method: 'POST',
         body: formData
       });
       const data = await response.json();
-      
+
       if (data.error) {
         alert("Error: " + data.error);
         return;
       }
-      
+
       const candidate = data.candidates[0];
       if (!candidate) {
         alert("Failed to analyze resume.");
         return;
       }
-      
+
       renderResults(candidate);
     } catch (err) {
-      alert("An error occurred during evaluation.");
+      alert("An error occurred during evaluation: " + err.message);
       console.error(err);
     } finally {
       evaluateBtn.disabled = false;
@@ -135,42 +200,96 @@
   function renderResults(candidate) {
     const resultsPanel = document.getElementById('results-panel');
     const content = document.getElementById('evaluation-content');
-    
+
     const score = candidate.score;
-    const isSelected = score >= 60; // 60 is an arbitrary selection threshold
-    
+    const isSelected = score >= 60;
+    const tfidf = Math.round(candidate.tfidf_score || 0);
+    const skill = Math.round(candidate.skill_match_score || score);
+    const dense = Math.round(candidate.dense_score || 0);
+
+    const bannerColor = score >= 70 ? 'var(--success)' : score >= 50 ? 'var(--warning)' : 'var(--danger)';
+    const bannerBg = score >= 70 ? 'rgba(16, 185, 129, 0.12)' : score >= 50 ? 'rgba(245, 158, 11, 0.12)' : 'rgba(239, 68, 68, 0.12)';
+
     let html = `
-      <div class="result-banner ${isSelected ? 'banner-success' : 'banner-warning'}">
-        <h3 style="margin-bottom: 10px;">${isSelected ? '🎉 You are Selected!' : '⚠️ Not Selected'}</h3>
-        <p>Your Match Score: <strong>${score}%</strong></p>
-        <p>${isSelected ? 'Your resume is a strong fit for this role.' : 'Your resume needs some enhancement to match this job description.'}</p>
+      <div class="result-banner" style="background:${bannerBg}; border:1px solid ${bannerColor}; border-radius:12px; padding:24px; text-align:center; margin-bottom:24px;">
+        <div style="font-size:2.8rem; font-weight:800; color:${bannerColor};">${score}%</div>
+        <h3 style="margin:8px 0; color:var(--text); font-size:1.3rem;">
+          ${score >= 70 ? '🎉 Exceptional ATS Compatibility!' : score >= 50 ? '⚖️ Moderate Match — Actionable Gaps Detected' : '⚠️ Low ATS Compatibility — Needs Optimization'}
+        </h3>
+        <p style="margin:0; color:var(--text-muted); font-size:0.95rem;">
+          ${candidate.tldr_summary || (score >= 60 ? 'Your resume strongly aligns with the target job profile.' : 'Key keywords and technical concepts are missing from your resume.')}
+        </p>
+      </div>
+
+      <!-- 3-Dimension Score Breakdown -->
+      <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(200px, 1fr)); gap:14px; margin-bottom:24px;">
+        <div style="background:rgba(22,22,31,0.7); border:1px solid var(--border); border-radius:8px; padding:16px; text-align:center;">
+          <div style="color:var(--text-muted); font-size:0.8rem; text-transform:uppercase; font-weight:600;">Keyword Density (TF-IDF)</div>
+          <div style="font-size:1.6rem; font-weight:700; color:var(--primary-light); margin-top:4px;">${tfidf}%</div>
+        </div>
+        <div style="background:rgba(22,22,31,0.7); border:1px solid var(--border); border-radius:8px; padding:16px; text-align:center;">
+          <div style="color:var(--text-muted); font-size:0.8rem; text-transform:uppercase; font-weight:600;">Explicit Skill Match</div>
+          <div style="font-size:1.6rem; font-weight:700; color:var(--success); margin-top:4px;">${skill}%</div>
+        </div>
+        <div style="background:rgba(22,22,31,0.7); border:1px solid var(--border); border-radius:8px; padding:16px; text-align:center;">
+          <div style="color:var(--text-muted); font-size:0.8rem; text-transform:uppercase; font-weight:600;">Semantic Vector Match</div>
+          <div style="font-size:1.6rem; font-weight:700; color:var(--accent); margin-top:4px;">${dense}%</div>
+        </div>
+      </div>
+
+      <!-- Matched Skills -->
+      <div class="suggestion-box" style="border-left:4px solid var(--success); background:rgba(22,22,31,0.7); padding:18px; border-radius:8px; margin-bottom:16px;">
+        <h4 style="margin:0 0 10px; color:var(--text);">✅ Verified Matched Skills</h4>
+        <div style="display:flex; gap:8px; flex-wrap:wrap;">
+          ${(candidate.matched_skills && candidate.matched_skills.length)
+            ? candidate.matched_skills.map(s => `<span class="badge matched" style="font-size:0.82rem; padding:4px 10px; border-radius:6px; background:rgba(16,185,129,0.15); color:var(--success); border:1px solid rgba(16,185,129,0.3);">${escapeHtml(s)}</span>`).join('')
+            : '<span style="color:var(--text-muted);">No direct matches found.</span>'}
+        </div>
       </div>
     `;
 
-    if (!isSelected) {
+    // Related Skills if any
+    if (candidate.related_skills && candidate.related_skills.length) {
       html += `
-        <div class="suggestion-box">
-          <h4>How to Enhance Your Resume</h4>
-          <p style="margin-bottom: 10px; color: var(--text-muted);">To improve your chances, consider updating your resume with the following skills based on the job description:</p>
-          <ul style="margin-left: 20px; list-style-type: disc;">
-            ${candidate.missing_skills.length > 0 
-              ? candidate.missing_skills.map(skill => `<li><strong>${skill}</strong></li>`).join('') 
-              : '<li>No specific missing skills detected, but try adding more quantifiable metrics to your experience.</li>'}
-          </ul>
-          <p style="margin-top: 15px; font-size: 0.9rem;"><em>Tip: Ensure you actually have experience with these skills before adding them. Incorporate them into your experience bullets rather than just listing them.</em></p>
-        </div>
-      `;
-    } else {
-       html += `
-        <div class="suggestion-box" style="border-left-color: var(--success);">
-          <h4>Matched Skills</h4>
-          <p style="margin-bottom: 10px; color: var(--text-muted);">Great job highlighting these key skills:</p>
-          <div style="display: flex; gap: 8px; flex-wrap: wrap;">
-            ${candidate.matched_skills.map(s => `<span class="skill-tag skill-matched">${s}</span>`).join('')}
+        <div class="suggestion-box" style="border-left:4px solid var(--warning); background:rgba(22,22,31,0.7); padding:18px; border-radius:8px; margin-bottom:16px;">
+          <h4 style="margin:0 0 10px; color:var(--text);">🔄 Adjacent / Transferable Skills (Partial Credit)</h4>
+          <p style="color:var(--text-muted); font-size:0.85rem; margin-bottom:10px;">The job required specific tools, but your adjacent background provides transferable experience:</p>
+          <div style="display:flex; gap:8px; flex-wrap:wrap;">
+            ${candidate.related_skills.map(r => `<span class="badge related" style="font-size:0.82rem; padding:4px 10px; border-radius:6px; background:rgba(245,158,11,0.15); color:var(--warning); border:1px solid rgba(245,158,11,0.3);">Wanted: ${escapeHtml(r.required)} → You have: <strong>${escapeHtml(r.found)}</strong></span>`).join('')}
           </div>
         </div>
       `;
     }
+
+    // Missing Skills & Optimization Roadmap
+    html += `
+      <div class="suggestion-box" style="border-left:4px solid var(--danger); background:rgba(22,22,31,0.7); padding:18px; border-radius:8px; margin-bottom:16px;">
+        <h4 style="margin:0 0 10px; color:var(--text);">🎯 Skills Gap &amp; ATS Keyword Roadmap</h4>
+        <p style="color:var(--text-muted); font-size:0.85rem; margin-bottom:10px;">Adding context or project evidence for these terms will significantly increase your ATS ranking score:</p>
+        <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:14px;">
+          ${(candidate.missing_skills && candidate.missing_skills.length)
+            ? candidate.missing_skills.map(s => `<span class="badge missing" style="font-size:0.82rem; padding:4px 10px; border-radius:6px; background:rgba(239,68,68,0.15); color:var(--danger); border:1px solid rgba(239,68,68,0.3);">${escapeHtml(s)}</span>`).join('')
+            : '<span style="color:var(--text-muted);">No major missing skills! Great job!</span>'}
+        </div>
+        <div style="background:rgba(0,0,0,0.25); padding:12px; border-radius:6px; font-size:0.85rem; color:var(--text-faint); line-height:1.5;">
+          💡 <strong>ATS Best Practice:</strong> Embed missing skills into quantitative accomplishment bullets (e.g. <em>"Architected microservice using Docker &amp; Python, improving throughput by 35%"</em>) rather than appending raw keyword lists.
+        </div>
+      </div>
+    `;
+
+    // Detected Credentials
+    const ent = candidate.entities || {};
+    html += `
+      <div style="background:rgba(22,22,31,0.7); border:1px solid var(--border); border-radius:8px; padding:18px;">
+        <h4 style="margin:0 0 10px; color:var(--text);">📋 Detected Resume Credentials</h4>
+        <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(200px, 1fr)); gap:12px; font-size:0.85rem;">
+          <div><strong style="color:var(--text);">Degrees:</strong> <span style="color:var(--text-muted);">${(ent.degrees && ent.degrees.length) ? ent.degrees.join(', ') : 'Not detected'}</span></div>
+          <div><strong style="color:var(--text);">Universities:</strong> <span style="color:var(--text-muted);">${(ent.universities && ent.universities.length) ? ent.universities.join(', ') : 'Not detected'}</span></div>
+          <div><strong style="color:var(--text);">Provable Experience:</strong> <span style="color:var(--text-muted);">${candidate.timeline_audit?.provable_years || 0} years</span></div>
+          <div><strong style="color:var(--text);">Est. Market Salary:</strong> <span style="color:var(--success); font-weight:bold;">${candidate.salary_prediction || 'Market Rate'}</span></div>
+        </div>
+      </div>
+    `;
 
     content.innerHTML = html;
     resultsPanel.style.display = 'block';
