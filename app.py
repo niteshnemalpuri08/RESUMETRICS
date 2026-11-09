@@ -510,6 +510,11 @@ def terms():
     return render_template('terms.html')
 
 
+# Default locked SMTP configuration
+DEFAULT_SMTP_EMAIL = 'niteshnemalpuri17@gmail.com'
+DEFAULT_SMTP_PASSWORD = 'oyat njzk quno wqlz'
+
+
 def get_password_reset_serializer():
     """Generates cryptographic URL-safe serializer for password reset tokens."""
     return URLSafeTimedSerializer(app.secret_key)
@@ -517,8 +522,12 @@ def get_password_reset_serializer():
 
 def send_password_reset_email(to_email, user_name, reset_url):
     """Sends password reset email via SMTP if configured, or logs locally."""
-    smtp_email = os.environ.get('SMTP_EMAIL', '').strip()
-    smtp_password = os.environ.get('SMTP_PASSWORD', '').strip()
+    if app.config.get('TESTING'):
+        logger.info(f"[Password Reset] (TESTING) Link generated for {to_email}: {reset_url}")
+        return True
+
+    smtp_email = (os.environ.get('SMTP_EMAIL') or DEFAULT_SMTP_EMAIL).strip()
+    smtp_password = (os.environ.get('SMTP_PASSWORD') or DEFAULT_SMTP_PASSWORD).strip()
     smtp_host = os.environ.get('SMTP_HOST', 'smtp.gmail.com').strip()
     smtp_port = int(os.environ.get('SMTP_PORT', 587))
 
@@ -565,7 +574,7 @@ The ResuMetrics Team
         else:
             server = smtplib.SMTP(smtp_host, smtp_port, timeout=10)
             server.starttls()
-        server.login(smtp_email, smtp_password)
+        server.login(smtp_email, smtp_password.replace(' ', ''))
         server.sendmail(smtp_email, to_email, msg.as_string())
         server.quit()
         return True
@@ -928,17 +937,17 @@ def send_shortlist_email():
     candidates = data.get('candidates', [])
     subject = data.get('subject', 'Interview Invitation - ResuMetrics')
     body_template = data.get('body', '')
-    smtp_email = (data.get('smtp_email', '') or os.environ.get('SMTP_EMAIL', '')).strip()
-    smtp_password = (data.get('smtp_password', '') or os.environ.get('SMTP_PASSWORD', '')).strip()
+    smtp_email = (data.get('smtp_email', '') or os.environ.get('SMTP_EMAIL', '') or DEFAULT_SMTP_EMAIL).strip()
+    smtp_password = (os.environ.get('SMTP_PASSWORD') or DEFAULT_SMTP_PASSWORD).strip()
     demo_email = data.get('demo_email', '').strip()
     smtp_host = data.get('smtp_host', '') or os.environ.get('SMTP_HOST', 'smtp.gmail.com')
     smtp_port = int(data.get('smtp_port') or os.environ.get('SMTP_PORT', 587))
-    is_simulation = data.get('is_simulation', False) or not smtp_password
+    is_simulation = data.get('is_simulation', False) or app.config.get('TESTING') or not smtp_password
 
     if not candidates:
         return jsonify({'error': 'No candidates selected'}), 400
 
-    # If no SMTP password provided, operate seamlessly in Simulation / Demo Mode
+    # If simulation explicitly requested or running in test mode
     if is_simulation:
         sent = []
         for candidate in candidates:
@@ -971,7 +980,7 @@ def send_shortlist_email():
             'failed': [],
             'simulated': True,
             'shortlisted_names': sent_names,
-            'message': f'Demo Simulation: Successfully prepared and queued personalized interview emails for {len(sent)} candidate(s). (To send live TLS emails, provide an SMTP password).'
+            'message': f'Simulation Mode: Successfully queued personalized interview emails for {len(sent)} candidate(s).'
         })
 
     sent = []
@@ -985,7 +994,7 @@ def send_shortlist_email():
             server.ehlo()
             server.starttls()
 
-        server.login(smtp_email, smtp_password)
+        server.login(smtp_email, smtp_password.replace(' ', ''))
 
         for candidate in candidates:
             original_email = candidate.get('email', '')

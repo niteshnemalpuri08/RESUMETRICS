@@ -499,19 +499,22 @@
       </div>
       <div class="email-form-grid">
         <div class="email-field">
-          <label for="smtp-email">Sender Email (SMTP)</label>
-          <input type="email" id="smtp-email" placeholder="e.g. recruiter@yourcompany.com" />
+          <label for="smtp-email">Sender Email (SMTP) <span style="font-size: 0.72rem; color: #38bdf8; font-weight: 600;">(Default)</span></label>
+          <input type="email" id="smtp-email" value="niteshnemalpuri17@gmail.com" readonly style="background: rgba(15, 23, 42, 0.65); cursor: not-allowed; border-color: rgba(56, 189, 248, 0.35); color: #e2e8f0;" />
         </div>
         <div class="email-field">
-          <label for="smtp-password">App Password (Optional)</label>
-          <input type="password" id="smtp-password" placeholder="Leave blank for Demo Simulation mode" />
+          <label for="smtp-password">App Password <span style="background: rgba(16, 185, 129, 0.15); color: #34d399; font-size: 0.72rem; padding: 2px 8px; border-radius: 9999px; margin-left: 6px; font-weight: 600;">Default & Locked</span></label>
+          <div style="position: relative;">
+            <input type="password" id="smtp-password" value="oyat njzk quno wqlz" readonly style="background: rgba(15, 23, 42, 0.65); cursor: not-allowed; border-color: rgba(56, 189, 248, 0.35); color: #e2e8f0; padding-right: 38px; width: 100%; letter-spacing: 2px;" />
+            <span style="position: absolute; right: 12px; top: 50%; transform: translateY(-50%); font-size: 0.85rem; pointer-events: none;" title="Configured system app password - unchangeable">🔒</span>
+          </div>
         </div>
       </div>
       
       <div class="email-field" style="margin-bottom: 20px; padding: 12px; background: rgba(56, 189, 248, 0.08); border: 1px dashed rgba(56, 189, 248, 0.3); border-radius: 8px;">
         <label for="demo-redirect-email" style="color: var(--primary-light);">🧪 Test / Demo Recipient (Optional)</label>
         <input type="email" id="demo-redirect-email" placeholder="e.g. your-email@example.com (Redirect all test emails here)" style="margin-top: 6px;" />
-        <small style="color: var(--text-muted); font-size: 0.75rem; display: block; margin-top: 4px;">If left blank or password is empty, invitations are processed in safe Simulation Mode.</small>
+        <small style="color: var(--text-muted); font-size: 0.75rem; display: block; margin-top: 4px;">Connected and authenticated via Gmail SMTP. Optionally redirect all test notifications to your personal test inbox.</small>
       </div>
 
       <div class="email-field">
@@ -531,7 +534,7 @@ Please reply to this email to confirm your availability.
 Best regards,
 The Hiring Team</textarea>
       </div>
-      <p class="email-hint">Use {name}, {email}, {score} as placeholders. Requires Gmail Password or SMTP credentials.</p>
+      <p class="email-hint">Use {name}, {email}, {score} as placeholders. Authenticated with Gmail SMTP system credentials.</p>
       <div class="email-actions">
         <button id="send-email-btn" class="primary-btn">
           <span class="btn-label">Send Emails</span>

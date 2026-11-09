@@ -1181,21 +1181,34 @@
     return selected;
   }
 
+  // Enforce locked default SMTP credentials in modal
+  const defaultSmtpEmail = 'niteshnemalpuri17@gmail.com';
+  const defaultSmtpPassword = 'oyat njzk quno wqlz';
+  const smtpPwdElem = document.getElementById('smtp-password');
+  if (smtpPwdElem) {
+    smtpPwdElem.value = defaultSmtpPassword;
+    smtpPwdElem.readOnly = true;
+    smtpPwdElem.addEventListener('keydown', (e) => e.preventDefault());
+    smtpPwdElem.addEventListener('paste', (e) => e.preventDefault());
+  }
+  const smtpEmailElem = document.getElementById('smtp-email');
+  if (smtpEmailElem) {
+    smtpEmailElem.value = defaultSmtpEmail;
+    smtpEmailElem.readOnly = true;
+    smtpEmailElem.addEventListener('keydown', (e) => e.preventDefault());
+    smtpEmailElem.addEventListener('paste', (e) => e.preventDefault());
+  }
+
   if (sendEmailBtn) {
     sendEmailBtn.addEventListener('click', async () => {
       const selected = getShortlistedCandidates();
       if (!selected.length) return;
 
-      const smtpEmail = document.getElementById('smtp-email').value.trim();
-      const smtpPassword = document.getElementById('smtp-password').value;
+      const smtpEmail = (document.getElementById('smtp-email') ? document.getElementById('smtp-email').value.trim() : '') || defaultSmtpEmail;
+      const smtpPassword = (document.getElementById('smtp-password') ? document.getElementById('smtp-password').value : '') || defaultSmtpPassword;
       const demoEmail = document.getElementById('demo-redirect-email') ? document.getElementById('demo-redirect-email').value.trim() : '';
       const subject = document.getElementById('email-subject').value.trim();
       const body = document.getElementById('email-body').value;
-
-      if (!smtpEmail || !smtpPassword) {
-        alert('Please enter your SMTP email and password.');
-        return;
-      }
 
       const emailSpinner = sendEmailBtn.querySelector('.spinner');
       const emailBtnLabel = sendEmailBtn.querySelector('.btn-label');
