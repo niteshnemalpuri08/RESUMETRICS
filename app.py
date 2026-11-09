@@ -42,6 +42,7 @@ from reportlab.lib import colors
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import mm
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+from xml.sax.saxutils import escape as xml_escape
 
 from werkzeug.security import generate_password_hash, check_password_hash
 
@@ -224,6 +225,7 @@ def init_sqlite_schema():
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 filename TEXT UNIQUE,
                 extracted_text TEXT,
+                ats_stage TEXT DEFAULT 'applied',
                 analyzed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         ''')
@@ -240,11 +242,33 @@ def init_sqlite_schema():
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS analysis_history (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER DEFAULT NULL,
                 job_description TEXT,
                 candidates_json TEXT,
                 analyzed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         ''')
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS applicant_evaluations (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER DEFAULT NULL,
+                job_description TEXT,
+                score REAL,
+                evaluation_json TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+
+        # Seamless non-destructive column migration for existing databases
+        try:
+            cursor.execute("ALTER TABLE candidates ADD COLUMN ats_stage TEXT DEFAULT 'applied'")
+        except Exception:
+            pass
+        try:
+            cursor.execute("ALTER TABLE analysis_history ADD COLUMN user_id INTEGER DEFAULT NULL")
+        except Exception:
+            pass
+
         conn.commit()
         conn.close()
     except Exception as e:
@@ -285,6 +309,7 @@ def init_db():
                     id INT AUTO_INCREMENT PRIMARY KEY,
                     filename VARCHAR(255) UNIQUE,
                     extracted_text LONGTEXT,
+                    ats_stage VARCHAR(50) DEFAULT 'applied',
                     analyzed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             ''')
@@ -301,11 +326,30 @@ def init_db():
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS analysis_history (
                     id INT AUTO_INCREMENT PRIMARY KEY,
+                    user_id INT DEFAULT NULL,
                     job_description TEXT,
                     candidates_json LONGTEXT,
                     analyzed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             ''')
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS applicant_evaluations (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    user_id INT DEFAULT NULL,
+                    job_description TEXT,
+                    score FLOAT,
+                    evaluation_json LONGTEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+            try:
+                cursor.execute("ALTER TABLE candidates ADD COLUMN ats_stage VARCHAR(50) DEFAULT 'applied'")
+            except Exception:
+                pass
+            try:
+                cursor.execute("ALTER TABLE analysis_history ADD COLUMN user_id INT DEFAULT NULL")
+            except Exception:
+                pass
         conn.commit()
     except Exception as e:
         print(f"Database initialization notice: {e}")
@@ -335,14 +379,14 @@ LAST_REPORT = {
 # Authentication & Role Decorators
 # ---------------------------------------------------------------------------
 def login_required(f):
-    """Decorator to protect routes that require authentication with seamless fallback."""
+    """Decorator to protect routes that require authentication."""
     @functools.wraps(f)
     def decorated_function(*args, **kwargs):
         if 'user_id' not in session:
-            session['user_id'] = 999
-            session['user_name'] = 'Demo Recruiter'
-            session['user_email'] = 'recruiter@resumetrics.ai'
-            session['user_role'] = 'recruiter'
+            if request.is_json or request.path.startswith(('/api/', '/analyze', '/history', '/export', '/chat', '/generate-assignment', '/send-shortlist-email')):
+                return jsonify({'error': 'Authentication required. Please sign in.'}), 401
+            flash('Please sign in to access this page.', 'error')
+            return redirect(url_for('login'))
         return f(*args, **kwargs)
     return decorated_function
 
@@ -353,13 +397,16 @@ def role_required(*roles):
         @functools.wraps(f)
         def decorated_function(*args, **kwargs):
             if 'user_id' not in session:
-                session['user_id'] = 999
-                session['user_name'] = 'Demo Recruiter'
-                session['user_email'] = 'recruiter@resumetrics.ai'
-                session['user_role'] = 'recruiter'
+                if request.is_json or request.path.startswith(('/api/', '/analyze', '/history', '/export', '/chat', '/generate-assignment', '/send-shortlist-email')):
+                    return jsonify({'error': 'Authentication required. Please sign in.'}), 401
+                flash('Please sign in to access this page.', 'error')
+                return redirect(url_for('login'))
             user_role = session.get('user_role', 'viewer')
             if user_role not in roles:
-                session['user_role'] = 'recruiter'
+                if request.is_json or request.path.startswith(('/api/', '/analyze', '/history', '/export', '/chat', '/generate-assignment', '/send-shortlist-email')):
+                    return jsonify({'error': f'Forbidden: Role "{user_role}" does not have permission for this action.'}), 403
+                flash(f'Access denied. Role "{user_role}" is not authorized for this action.', 'error')
+                return redirect(url_for('dashboard'))
             return f(*args, **kwargs)
         return decorated_function
     return decorator
@@ -384,6 +431,12 @@ def home():
 @app.route('/favicon.ico')
 def favicon():
     return ('', 204)
+
+
+@app.route('/health')
+def health_check():
+    """Simple health check endpoint for monitoring and deployment verification."""
+    return jsonify({'status': 'ok', 'service': 'ResuMetrics', 'version': '2.0'})
 
 
 @app.route('/login', methods=['GET', 'POST'])
@@ -428,11 +481,22 @@ def demo_login():
     role = request.args.get('role', 'recruiter').strip().lower()
     if role not in ('admin', 'recruiter', 'viewer', 'applicant'):
         role = 'recruiter'
-    session['user_id'] = 999 if role == 'recruiter' else 998
-    session['user_name'] = 'Demo Recruiter' if role == 'recruiter' else 'Demo Applicant'
+    session['user_id'] = 999 if role not in ('applicant',) else 998
+    session['user_name'] = 'Demo Applicant' if role == 'applicant' else 'Demo Recruiter'
     session['user_email'] = f'demo.{role}@resumetrics.ai'
     session['user_role'] = role
     flash(f'Signed in as {session["user_name"]} ({role.title()} Role). Enjoy exploring ResuMetrics!', 'info')
+    return redirect(url_for('dashboard'))
+
+
+@app.route('/applicant-demo-login')
+def applicant_demo_login():
+    """Convenience shortcut for applicant demo login used by landing page."""
+    session['user_id'] = 998
+    session['user_name'] = 'Demo Applicant'
+    session['user_email'] = 'demo.applicant@resumetrics.ai'
+    session['user_role'] = 'applicant'
+    flash('Signed in as Demo Applicant. Explore your self-evaluation dashboard!', 'info')
     return redirect(url_for('dashboard'))
 
 
@@ -514,12 +578,6 @@ def logout():
 @app.route('/dashboard')
 def dashboard():
     req_role = request.args.get('role', '').strip().lower()
-    if req_role in ('recruiter', 'applicant', 'admin', 'viewer'):
-        session['user_role'] = req_role
-        if req_role == 'applicant':
-            session['user_name'] = 'Demo Applicant' if session.get('user_id') in (998, 999, None) else session.get('user_name', 'Applicant')
-        else:
-            session['user_name'] = 'Demo Recruiter' if session.get('user_id') in (998, 999, None) else session.get('user_name', 'Recruiter')
 
     if 'user_id' not in session:
         role = req_role if req_role in ('applicant', 'recruiter', 'admin', 'viewer') else 'recruiter'
@@ -527,6 +585,18 @@ def dashboard():
         session['user_name'] = 'Demo Applicant' if role == 'applicant' else 'Demo Recruiter'
         session['user_email'] = f'demo.{role}@resumetrics.ai'
         session['user_role'] = role
+    elif session.get('user_id') in (998, 999):
+        # Demo users can toggle their demo role between recruiter and applicant
+        if req_role in ('recruiter', 'applicant', 'admin', 'viewer'):
+            session['user_role'] = req_role
+            if req_role == 'applicant':
+                session['user_id'] = 998
+                session['user_name'] = 'Demo Applicant'
+                session['user_email'] = 'demo.applicant@resumetrics.ai'
+            else:
+                session['user_id'] = 999
+                session['user_name'] = 'Demo Recruiter'
+                session['user_email'] = 'demo.recruiter@resumetrics.ai'
 
     user_role = session.get('user_role', 'recruiter')
     if user_role == 'applicant':
@@ -682,8 +752,8 @@ def analyze_resumes():
         conn = get_db_connection()
         cursor = conn.cursor()
         cursor.execute(
-            'INSERT INTO analysis_history (job_description, candidates_json) VALUES (%s, %s)',
-            (job_skills_input, json.dumps(results))
+            'INSERT INTO analysis_history (user_id, job_description, candidates_json) VALUES (%s, %s, %s)',
+            (session.get('user_id'), job_skills_input, json.dumps(results))
         )
         conn.commit()
         history_id = cursor.lastrowid
@@ -726,10 +796,31 @@ def send_shortlist_email():
             name = candidate.get('name', 'Candidate')
             target_email = demo_email if demo_email else (orig_email if orig_email and '@' in orig_email else 'candidate@company.com')
             sent.append({'name': name, 'email': target_email, 'status': 'Simulated'})
+
+        # Update candidate stage to 'shortlisted' in session and DB
+        sent_names = [s['name'] for s in sent]
+        for c in LAST_REPORT.get('candidates', []):
+            c_clean = c['name'].replace('.pdf', '').replace('.docx', '').replace('_', ' ')
+            if c_clean in sent_names or c['name'] in sent_names or any(s in c['name'] for s in sent_names):
+                c['stage'] = 'shortlisted'
+        try:
+            conn = get_db_connection()
+            cursor = conn.cursor()
+            for s_name in sent_names:
+                cursor.execute(
+                    "UPDATE candidates SET ats_stage = 'shortlisted' WHERE filename = %s OR filename LIKE %s",
+                    (s_name, f"%{s_name}%")
+                )
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            print(f"Notice updating shortlist stage in DB: {e}")
+
         return jsonify({
             'sent': sent,
             'failed': [],
             'simulated': True,
+            'shortlisted_names': sent_names,
             'message': f'Demo Simulation: Successfully prepared and queued personalized interview emails for {len(sent)} candidate(s). (To send live TLS emails, provide an SMTP password).'
         })
 
@@ -772,6 +863,26 @@ def send_shortlist_email():
                 failed.append({'name': name, 'reason': str(e)})
 
         server.quit()
+
+        # Update candidate stage to 'shortlisted' in session and DB
+        sent_names = [s['name'] for s in sent]
+        for c in LAST_REPORT.get('candidates', []):
+            c_clean = c['name'].replace('.pdf', '').replace('.docx', '').replace('_', ' ')
+            if c_clean in sent_names or c['name'] in sent_names or any(s in c['name'] for s in sent_names):
+                c['stage'] = 'shortlisted'
+        try:
+            conn = get_db_connection()
+            cursor = conn.cursor()
+            for s_name in sent_names:
+                cursor.execute(
+                    "UPDATE candidates SET ats_stage = 'shortlisted' WHERE filename = %s OR filename LIKE %s",
+                    (s_name, f"%{s_name}%")
+                )
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            print(f"Notice updating shortlist stage in DB: {e}")
+
     except Exception as e:
         return jsonify({'error': f'SMTP connection failed: {e}'}), 500
 
@@ -779,6 +890,7 @@ def send_shortlist_email():
         'sent': sent,
         'failed': failed,
         'simulated': False,
+        'shortlisted_names': [s['name'] for s in sent],
         'message': f'Successfully dispatched {len(sent)} live email(s). {len(failed)} failed.'
     })
 
@@ -798,30 +910,33 @@ def export_csv():
         
         # Write headers
         writer.writerow([
-            'Rank', 'Candidate File', 'Match Score (%)', 'TF-IDF Score (%)',
+            'Rank', 'Candidate File', 'Match Score (%)', 'ATS Stage', 'TF-IDF Score (%)',
             'Dense Score (%)', 'Email', 'Phone', 'Degrees', 'Universities',
             'Job Roles', 'Matched Skills', 'Related Skills', 'Missing Skills',
             'Timeline Alert', 'Alert Reason'
         ])
         
         for idx, candidate in enumerate(LAST_REPORT['candidates'], start=1):
-            entities = candidate.get('entities', {})
+            entities = candidate.get('entities', {}) or {}
+            contact = candidate.get('contact', {}) or {}
+            timeline = candidate.get('timeline_audit', {}) or {}
             writer.writerow([
                 idx,
-                candidate['name'],
-                candidate['score'],
+                candidate.get('name', ''),
+                candidate.get('score', 0),
+                candidate.get('stage', 'applied').title(),
                 candidate.get('tfidf_score', 0),
                 candidate.get('dense_score', 0),
-                candidate['contact']['email'],
-                candidate['contact']['phone'],
+                contact.get('email', 'Not found'),
+                contact.get('phone', 'Not found'),
                 ', '.join(entities.get('degrees', [])),
                 ', '.join(entities.get('universities', [])),
                 ', '.join(entities.get('job_roles', [])),
-                ', '.join(candidate['matched_skills']),
-                ', '.join([f"{r['required']} → {r['found']}" for r in candidate.get('related_skills', [])]),
-                ', '.join(candidate['missing_skills']),
-                candidate['timeline_audit']['timeline_alert'],
-                candidate['timeline_audit']['alert_reason']
+                ', '.join(candidate.get('matched_skills', [])),
+                ', '.join([f"{r.get('required', '')} → {r.get('found', '')}" for r in candidate.get('related_skills', [])]),
+                ', '.join(candidate.get('missing_skills', [])),
+                timeline.get('timeline_alert', False),
+                timeline.get('alert_reason', '')
             ])
             
         buffer.seek(0)
@@ -852,23 +967,34 @@ def export_report():
     meta_style = ParagraphStyle('ReportMeta', parent=styles['Normal'], textColor=colors.grey, spaceAfter=16)
     section_style = ParagraphStyle('SectionHeading', parent=styles['Heading2'], spaceBefore=14, spaceAfter=6)
     body_style = styles['Normal']
+    table_cell_style = ParagraphStyle('TableCell', parent=styles['Normal'], fontSize=8.5, leading=10)
+    table_header_style = ParagraphStyle('TableHeader', parent=styles['Normal'], fontSize=8.5, leading=10, textColor=colors.white, fontName='Helvetica-Bold')
 
     elements = [
         Paragraph('ResuMetrics - Hybrid Candidate Match Report', title_style),
         Paragraph(f"Generated: {LAST_REPORT['generated_at']} | Candidates Analyzed: {len(LAST_REPORT['candidates'])}", meta_style)
     ]
 
-    table_data = [['Rank', 'Candidate File', 'Match %', 'Email', 'Phone']]
+    table_data = [[
+        Paragraph('Rank', table_header_style),
+        Paragraph('Candidate File', table_header_style),
+        Paragraph('Match %', table_header_style),
+        Paragraph('Stage', table_header_style),
+        Paragraph('Email', table_header_style),
+        Paragraph('Phone', table_header_style)
+    ]]
     for idx, candidate in enumerate(LAST_REPORT['candidates'], start=1):
+        contact = candidate.get('contact', {}) or {}
         table_data.append([
-            str(idx),
-            candidate['name'],
-            f"{candidate['score']}%",
-            candidate['contact']['email'],
-            candidate['contact']['phone']
+            Paragraph(str(idx), table_cell_style),
+            Paragraph(xml_escape(candidate.get('name', '')), table_cell_style),
+            Paragraph(f"{candidate.get('score', 0)}%", table_cell_style),
+            Paragraph(xml_escape(candidate.get('stage', 'applied').title()), table_cell_style),
+            Paragraph(xml_escape(contact.get('email', 'Not found')), table_cell_style),
+            Paragraph(xml_escape(contact.get('phone', 'Not found')), table_cell_style)
         ])
 
-    summary_table = Table(table_data, colWidths=[15*mm, 55*mm, 22*mm, 55*mm, 33*mm])
+    summary_table = Table(table_data, colWidths=[12*mm, 50*mm, 18*mm, 24*mm, 45*mm, 31*mm])
     summary_table.setStyle(TableStyle([
         ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#2E3A59')),
         ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
@@ -884,25 +1010,29 @@ def export_report():
 
     elements.append(Paragraph('Skill Gap &amp; Fraud Audit Detail', section_style))
     for idx, candidate in enumerate(LAST_REPORT['candidates'], start=1):
-        elements.append(Paragraph(f"<b>{idx}. {candidate['name']}</b> — {candidate['score']}% match", body_style))
-        matched = ', '.join(candidate['matched_skills']) or 'None'
-        related = ', '.join([f"{r['required']}→{r['found']}" for r in candidate.get('related_skills', [])]) or 'None'
-        missing = ', '.join(candidate['missing_skills']) or 'None'
+        c_name = xml_escape(candidate.get('name', 'Candidate'))
+        c_score = candidate.get('score', 0)
+        c_stage = xml_escape(candidate.get('stage', 'applied').title())
+        elements.append(Paragraph(f"<b>{idx}. {c_name}</b> — {c_score}% match (Status: {c_stage})", body_style))
+        matched = xml_escape(', '.join(candidate.get('matched_skills', []))) or 'None'
+        related = xml_escape(', '.join([f"{r.get('required', '')}→{r.get('found', '')}" for r in candidate.get('related_skills', [])])) or 'None'
+        missing = xml_escape(', '.join(candidate.get('missing_skills', []))) or 'None'
         elements.append(Paragraph(f"<font color='#1B7F3A'><b>Matched:</b></font> {matched}", body_style))
         elements.append(Paragraph(f"<font color='#D4A017'><b>Related:</b></font> {related}", body_style))
         elements.append(Paragraph(f"<font color='#B23B3B'><b>Missing:</b></font> {missing}", body_style))
 
         # NER entities
-        entities = candidate.get('entities', {})
+        entities = candidate.get('entities', {}) or {}
         if entities.get('degrees'):
-            elements.append(Paragraph(f"<b>Degrees:</b> {', '.join(entities['degrees'])}", body_style))
+            elements.append(Paragraph(f"<b>Degrees:</b> {xml_escape(', '.join(entities['degrees']))}", body_style))
         if entities.get('universities'):
-            elements.append(Paragraph(f"<b>Universities:</b> {', '.join(entities['universities'])}", body_style))
+            elements.append(Paragraph(f"<b>Universities:</b> {xml_escape(', '.join(entities['universities']))}", body_style))
         if entities.get('job_roles'):
-            elements.append(Paragraph(f"<b>Roles:</b> {', '.join(entities['job_roles'])}", body_style))
+            elements.append(Paragraph(f"<b>Roles:</b> {xml_escape(', '.join(entities['job_roles']))}", body_style))
 
-        if candidate['timeline_audit']['timeline_alert']:
-            elements.append(Paragraph(f"<font color='#D64545'><b>Alert:</b></font> {candidate['timeline_audit']['alert_reason']}", body_style))
+        timeline = candidate.get('timeline_audit', {}) or {}
+        if timeline.get('timeline_alert'):
+            elements.append(Paragraph(f"<font color='#D64545'><b>Alert:</b></font> {xml_escape(timeline.get('alert_reason', ''))}", body_style))
         elements.append(Spacer(1, 8))
 
     doc.build(elements)
@@ -927,6 +1057,275 @@ def optimize_jd():
     suggestions = optimize_job_description(job_skills)
     
     return jsonify({'suggestions': suggestions})
+
+
+@app.route('/generate-assignment', methods=['POST'])
+@role_required('admin', 'recruiter')
+def generate_assignment():
+    """Generates a comprehensive, role-tailored AI technical assessment based on real candidate skills."""
+    data = request.get_json() or {}
+    candidate_name = data.get('candidate_name', 'Candidate')
+    roles = data.get('roles', [])
+    matched_skills = data.get('matched_skills', [])
+    missing_skills = data.get('missing_skills', [])
+    provable_years = data.get('provable_years', 3)
+
+    clean_name = candidate_name.replace('.pdf', '').replace('.docx', '').replace('_', ' ')
+    role_title = roles[0] if roles else 'Software Engineer'
+    primary_skills = ', '.join(matched_skills[:4]) if matched_skills else 'core programming and system design'
+    stretch_skill = missing_skills[0] if missing_skills else 'cloud resilience and automated testing'
+
+    role_lower = role_title.lower()
+    if 'data' in role_lower or 'machine learning' in role_lower or 'ai' in role_lower:
+        scenario = f"Build an end-to-end predictive machine learning pipeline that ingests, cleans, and trains on tabular streaming data. Deploy a high-throughput inference REST service leveraging {primary_skills}."
+        tech_req = f"- Data Ingestion & Preprocessing: Clean missing values, handle categorical features, and extract features.\n- Model Training & Evaluation: Implement an explainable baseline with precision, recall, and ROC-AUC metrics.\n- Serving API: Serve predictions via a RESTful endpoint with p99 latency < 50ms.\n- Stretch Goal: Incorporate {stretch_skill} into the evaluation or deployment workflow."
+    elif 'devops' in role_lower or 'cloud' in role_lower or 'platform' in role_lower:
+        scenario = f"Architect and deploy a self-healing, zero-downtime infrastructure for a distributed multi-tenant service using {primary_skills}."
+        tech_req = f"- Infrastructure as Code: Provision compute, storage, and networking with modular templates.\n- Container Orchestration: Deploy services with automated health checks, resource limits, and secrets management.\n- CI/CD & Observability: Implement continuous delivery with structured logging and metrics alerting.\n- Stretch Goal: Integrate {stretch_skill} into the deployment pipeline."
+    elif 'frontend' in role_lower or 'ui' in role_lower:
+        scenario = f"Design and implement a responsive, high-performance data dashboard featuring real-time client-side analytics and accessible UI components using {primary_skills}."
+        tech_req = f"- Component Architecture: Build clean, reusable component hierarchy with robust state management.\n- Performance & Accessibility: Achieve 95+ Lighthouse score, keyboard navigation, and WCAG AA contrast.\n- API Integration: Gracefully handle loading states, pagination, and error boundaries.\n- Stretch Goal: Incorporate {stretch_skill} into the interface or state workflow."
+    else:
+        scenario = f"Architect and implement a scalable microservice that handles asynchronous job processing, persistent storage, and authenticated REST APIs using {primary_skills}."
+        tech_req = f"- Backend Service: Build modular RESTful endpoints with input validation and structured error handling.\n- Data Layer: Design normalized schema with indexed queries and caching for high-read paths.\n- Reliability: Containerize with Docker and provide integration test coverage.\n- Stretch Goal: Address {stretch_skill} to demonstrate adaptability."
+
+    assignment = f"""### Technical Assessment: {role_title}
+
+**Candidate:** {clean_name}
+**Evaluated Level:** ~{provable_years} Years Experience
+**Verified Tech Stack:** {primary_skills}
+**Target Growth Area:** {stretch_skill}
+
+#### 1. Business Scenario & Objective
+{scenario}
+
+#### 2. Core Technical Requirements
+{tech_req}
+
+#### 3. Evaluation Criteria
+1. **Architecture & Clean Code (30%):** Modular separation of concerns, readability, and idiomatic conventions.
+2. **Correctness & Robustness (25%):** Edge cases handled, input validation, and reliable error responses.
+3. **Testing & Documentation (25%):** Comprehensive unit/integration tests and clear README with setup instructions.
+4. **Adaptability & Scalability (20%):** Execution on the stretch goal involving {stretch_skill}.
+
+#### 4. Deliverables & Timeframe
+- Git repository containing source code, test suite, and Dockerfile.
+- Setup guide with local run command (e.g. docker compose up or simple CLI execution).
+- **Estimated Completion Time:** 3 - 4 Hours.
+"""
+    return jsonify({
+        'success': True,
+        'candidate_name': clean_name,
+        'role': role_title,
+        'assignment': assignment.strip()
+    })
+
+
+@app.route('/api/candidate/stage', methods=['POST'])
+@role_required('admin', 'recruiter')
+def update_candidate_stage():
+    """Updates candidate hiring stage across active session and database."""
+    import json
+    data = request.get_json() or {}
+    candidate_name = data.get('candidate_name', '').strip()
+    new_stage = data.get('stage', '').strip().lower()
+
+    valid_stages = ('applied', 'shortlisted', 'interviewing', 'rejected')
+    if new_stage not in valid_stages:
+        return jsonify({'error': f'Invalid stage. Must be one of {valid_stages}'}), 400
+
+    if not candidate_name:
+        return jsonify({'error': 'Candidate name is required'}), 400
+
+    # 1. Update in-memory LAST_REPORT
+    updated = False
+    for c in LAST_REPORT.get('candidates', []):
+        c_clean = c['name'].replace('.pdf', '').replace('.docx', '').replace('_', ' ').lower()
+        target_clean = candidate_name.replace('.pdf', '').replace('.docx', '').replace('_', ' ').lower()
+        if c_clean == target_clean or c['name'] == candidate_name or target_clean in c_clean:
+            c['stage'] = new_stage
+            updated = True
+            break
+
+    # 2. Update database candidates table & history
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            "UPDATE candidates SET ats_stage = %s WHERE filename = %s OR filename LIKE %s",
+            (new_stage, candidate_name, f"%{candidate_name}%")
+        )
+        if updated and LAST_REPORT.get('candidates'):
+            cursor.execute(
+                "UPDATE analysis_history SET candidates_json = %s WHERE id = (SELECT MAX(id) FROM analysis_history)",
+                (json.dumps(LAST_REPORT['candidates']),)
+            )
+        conn.commit()
+        conn.close()
+    except Exception as db_err:
+        print(f"Notice updating candidate stage in DB: {db_err}")
+
+    return jsonify({
+        'success': True,
+        'candidate_name': candidate_name,
+        'stage': new_stage,
+        'updated_in_session': updated
+    })
+
+
+@app.route('/api/applicant/evaluate', methods=['POST'])
+@login_required
+def applicant_evaluate():
+    """Dedicated self-evaluation endpoint for applicants without mutating recruiter reports."""
+    import json
+    if 'resume' not in request.files and 'resumes' not in request.files:
+        return jsonify({'error': 'No resume file uploaded'}), 400
+
+    file_storage = request.files.get('resume') or request.files.get('resumes')
+    job_skills_input = request.form.get('skills', '').strip()
+
+    if not file_storage or not file_storage.filename:
+        return jsonify({'error': 'No file selected'}), 400
+    if not job_skills_input:
+        return jsonify({'error': 'Job description is required'}), 400
+
+    processed = _process_single_file(file_storage)
+    if not processed or processed.get('status') != 'ok':
+        reason = processed.get('reason', 'Failed extracting text') if processed else 'Empty file'
+        return jsonify({'error': reason}), 400
+
+    raw_text = processed['raw_text']
+    clean_r = processed['cleaned_text']
+    filename = processed['filename']
+
+    cleaned_job = clean_text(job_skills_input)
+    job_skills = _extract_skill_phrases(job_skills_input)
+
+    all_insights = [extract_keyword_insights(clean_r, job_skills)]
+    skill_matched_lists = [ins['matched_skills'] for ins in all_insights]
+    related_skill_counts = [len(ins.get('related_skills', [])) for ins in all_insights]
+
+    tfidf_scores = calculate_tfidf_scores([clean_r], cleaned_job)
+    dense_scores = calculate_dense_scores([raw_text], job_skills_input)
+    rrf_scores = compute_rrf_scores(
+        tfidf_scores, dense_scores,
+        job_skills=job_skills, cleaned_resumes=[clean_r],
+        skill_matches=skill_matched_lists,
+        related_skill_counts=related_skill_counts
+    )
+
+    candidate = build_candidate_report(
+        filename, raw_text, clean_r, job_skills,
+        rrf_scores[0], tfidf_scores[0], dense_scores[0],
+        precomputed_insights=all_insights[0]
+    )
+
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            'INSERT INTO applicant_evaluations (user_id, job_description, score, evaluation_json) VALUES (%s, %s, %s, %s)',
+            (session.get('user_id'), job_skills_input, candidate['score'], json.dumps(candidate))
+        )
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"Notice persisting applicant evaluation: {e}")
+
+    return jsonify({'success': True, 'candidate': candidate})
+
+
+@app.route('/api/applicant/sample', methods=['GET', 'POST'])
+@login_required
+def applicant_sample():
+    """Loads a sample software engineer resume and evaluates against target job description."""
+    samples_dir = os.path.join(BASE_DIR, 'sample_resumes')
+    sample_files = [f for f in os.listdir(samples_dir) if f.endswith('.pdf')] if os.path.exists(samples_dir) else []
+    if not sample_files:
+        return jsonify({'error': 'No sample resumes found'}), 404
+
+    target_file = sample_files[0]
+    fpath = os.path.join(samples_dir, target_file)
+    with open(fpath, 'rb') as fp:
+        raw_text = extract_text(fp.read(), 'pdf')
+
+    job_requirements = (
+        "Senior Full-Stack Cloud Engineer: Python, React, AWS, Docker, Microservices, "
+        "SQL, Node.js, CI/CD, Git, Kubernetes, REST APIs"
+    )
+
+    clean_r = clean_text(raw_text)
+    cleaned_job = clean_text(job_requirements)
+    job_skills = _extract_skill_phrases(job_requirements)
+
+    all_insights = [extract_keyword_insights(clean_r, job_skills)]
+    skill_matched_lists = [ins['matched_skills'] for ins in all_insights]
+    related_skill_counts = [len(ins.get('related_skills', [])) for ins in all_insights]
+
+    tfidf_scores = calculate_tfidf_scores([clean_r], cleaned_job)
+    dense_scores = calculate_dense_scores([raw_text], job_requirements)
+    rrf_scores = compute_rrf_scores(
+        tfidf_scores, dense_scores,
+        job_skills=job_skills, cleaned_resumes=[clean_r],
+        skill_matches=skill_matched_lists,
+        related_skill_counts=related_skill_counts
+    )
+
+    candidate = build_candidate_report(
+        target_file, raw_text, clean_r, job_skills,
+        rrf_scores[0], tfidf_scores[0], dense_scores[0],
+        precomputed_insights=all_insights[0]
+    )
+
+    return jsonify({
+        'success': True,
+        'job_description': job_requirements,
+        'candidate': candidate
+    })
+
+
+@app.route('/api/applicant/optimize-bullet', methods=['POST'])
+@login_required
+def api_optimize_bullet():
+    """Rewrites a weak or standard resume bullet point into 3 high-impact executive variations."""
+    data = request.get_json(silent=True) or request.form
+    bullet = data.get('bullet', '').strip()
+    target_role = data.get('target_role', '').strip()
+
+    if not bullet:
+        return jsonify({'error': 'Bullet point text is required'}), 400
+
+    from resume_parser import optimize_resume_bullet
+    revisions = optimize_resume_bullet(bullet, target_role=target_role)
+    return jsonify({'success': True, 'revisions': revisions, 'original': bullet})
+
+
+@app.route('/api/applicant/cover-letter', methods=['POST'])
+@login_required
+def api_generate_cover_letter():
+    """Generates a tailored executive cover letter from candidate details and target job."""
+    data = request.get_json(silent=True) or request.form
+    candidate_name = data.get('name', 'Candidate')
+    matched_skills = data.get('matched_skills', [])
+    if isinstance(matched_skills, str):
+        matched_skills = [s.strip() for s in matched_skills.split(',') if s.strip()]
+    missing_skills = data.get('missing_skills', [])
+    if isinstance(missing_skills, str):
+        missing_skills = [s.strip() for s in missing_skills.split(',') if s.strip()]
+    provable_years = int(data.get('provable_years', 0) or 0)
+    job_roles = data.get('job_roles', [])
+    if isinstance(job_roles, str):
+        job_roles = [r.strip() for r in job_roles.split(',') if r.strip()]
+    job_description = data.get('job_description', '')
+
+    from resume_parser import generate_tailored_cover_letter
+    cover_letter = generate_tailored_cover_letter(
+        candidate_name, matched_skills, missing_skills,
+        provable_years=provable_years, job_roles=job_roles,
+        job_description=job_description
+    )
+    return jsonify({'success': True, 'cover_letter': cover_letter})
+
 
 
 @app.route('/history', methods=['GET'])
@@ -1110,8 +1509,8 @@ def load_samples():
         conn = get_db_connection()
         cursor = conn.cursor()
         cursor.execute(
-            'INSERT INTO analysis_history (job_description, candidates_json) VALUES (%s, %s)',
-            (job_requirements, json.dumps(results))
+            'INSERT INTO analysis_history (user_id, job_description, candidates_json) VALUES (%s, %s, %s)',
+            (session.get('user_id'), job_requirements, json.dumps(results))
         )
         conn.commit()
         history_id = cursor.lastrowid
@@ -1195,6 +1594,20 @@ def chat_bot():
             return jsonify({"answer": "No resumes currently analyzed. Upload resumes or click '⚡ Load Demo Candidates' to begin asking questions!"})
         except Exception as e:
             return jsonify({"answer": f"Notice: {e}. Please analyze resumes first."})
+
+    # 0. Pipeline / ATS Stages Query
+    if any(k in q_lower for k in ['pipeline', 'shortlist', 'interview', 'rejected', 'stage', 'status']):
+        shortlisted = [c['name'].replace('.pdf', '').replace('.docx', '').replace('_', ' ') for c in cands if c.get('stage') == 'shortlisted']
+        interviewing = [c['name'].replace('.pdf', '').replace('.docx', '').replace('_', ' ') for c in cands if c.get('stage') == 'interviewing']
+        rejected = [c['name'].replace('.pdf', '').replace('.docx', '').replace('_', ' ') for c in cands if c.get('stage') == 'rejected']
+        applied = [c['name'].replace('.pdf', '').replace('.docx', '').replace('_', ' ') for c in cands if c.get('stage', 'applied') == 'applied']
+
+        msg = f"📊 **ATS Pipeline Breakdown ({len(cands)} total):**\n"
+        msg += f"- **1. Applied:** {len(applied)} candidate(s)\n"
+        msg += f"- **2. Shortlisted:** {len(shortlisted)} candidate(s)" + (f" ({', '.join(shortlisted[:3])})" if shortlisted else "") + "\n"
+        msg += f"- **3. Interviewing:** {len(interviewing)} candidate(s)" + (f" ({', '.join(interviewing[:3])})" if interviewing else "") + "\n"
+        msg += f"- **4. Rejected:** {len(rejected)} candidate(s)" + (f" ({', '.join(rejected[:3])})" if rejected else "")
+        return jsonify({"answer": msg})
 
     # 1. Top Candidate / Overall Best Fit
     if any(k in q_lower for k in ['top candidate', 'highest score', 'best match', 'best candidate', 'winner', 'who should i hire', 'recommend']):
@@ -1358,8 +1771,8 @@ def api_analyze():
         conn = get_db_connection()
         cursor = conn.cursor()
         cursor.execute(
-            'INSERT INTO analysis_history (job_description, candidates_json) VALUES (%s, %s)',
-            (job_skills_input, json.dumps(results))
+            'INSERT INTO analysis_history (user_id, job_description, candidates_json) VALUES (%s, %s, %s)',
+            (session.get('user_id'), job_skills_input, json.dumps(results))
         )
         conn.commit()
         conn.close()

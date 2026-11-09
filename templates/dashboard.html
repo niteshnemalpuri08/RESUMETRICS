@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v=2.2">
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body class="dashboard-body">
@@ -39,9 +39,9 @@
   </div>
 </header>
 
-<main class="container page-enter">
+<main class="container page-enter dashboard-container" style="display: block !important; width: 100%;">
 
-  <nav class="tabs-nav">
+  <nav class="tabs-nav" style="display: flex; width: 100%; position: relative; z-index: 10; margin-bottom: 24px; clear: both;">
     <button class="tab-btn active" data-tab="tab-upload">Upload &amp; Settings</button>
     <button class="tab-btn" data-tab="tab-results" id="tab-btn-results">Rankings &amp; Results</button>
     <button class="tab-btn" data-tab="tab-pipeline" id="tab-btn-pipeline">ATS Pipeline</button>
@@ -427,7 +427,10 @@
       <h4>Recommended Interview Questions</h4>
       <ul class="interview-questions" style="font-size: 0.85rem; color: var(--text-muted); padding-left: 20px;"></ul>
       
-      <h4>Automated Outreach Draft</h4>
+      <div style="display: flex; justify-content: space-between; align-items: center;">
+        <h4 style="margin: 0;">Automated Outreach Draft</h4>
+        <button type="button" class="copy-outreach-btn secondary-btn" style="padding: 4px 10px; font-size: 0.75rem; background: rgba(30, 30, 45, 0.8);">📋 Copy Draft</button>
+      </div>
       <textarea class="outreach-email" rows="4" style="width: 100%; font-size: 0.85rem; padding: 8px; margin-top: 8px; border: 1px solid var(--border-strong); border-radius: 4px; background: var(--bg); color: var(--text);" readonly></textarea>
       
       <div style="display: flex; gap: 20px; margin-top: 15px;">

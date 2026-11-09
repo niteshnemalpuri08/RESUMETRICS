@@ -540,8 +540,23 @@
       }
       
       const outreachEl = card.querySelector('.outreach-email');
+      const copyOutreachBtn = card.querySelector('.copy-outreach-btn');
       if (outreachEl && candidate.outreach_email) {
         outreachEl.value = candidate.outreach_email;
+      }
+      if (copyOutreachBtn && outreachEl) {
+        copyOutreachBtn.addEventListener('click', () => {
+          if (!outreachEl.value) return;
+          navigator.clipboard.writeText(outreachEl.value).then(() => {
+            copyOutreachBtn.textContent = '✅ Copied!';
+            setTimeout(() => { copyOutreachBtn.textContent = '📋 Copy Draft'; }, 2000);
+          }).catch(() => {
+            outreachEl.select();
+            document.execCommand('copy');
+            copyOutreachBtn.textContent = '✅ Copied!';
+            setTimeout(() => { copyOutreachBtn.textContent = '📋 Copy Draft'; }, 2000);
+          });
+        });
       }
       
       const softSkillsEl = card.querySelector('.soft-skills-profile');
@@ -570,24 +585,67 @@
         salaryEl.textContent = candidate.salary_prediction;
       }
 
-
-
       // Take-home Assignment Generator
       const genBtn = card.querySelector('.generate-assignment-btn');
       const assignOut = card.querySelector('.assignment-output');
       if (genBtn && assignOut) {
-        genBtn.addEventListener('click', () => {
-          genBtn.innerHTML = '🪄 Generating Custom Assignment...';
+        genBtn.addEventListener('click', async () => {
+          genBtn.innerHTML = '<span class="spinner" style="display:inline-block; width:12px; height:12px; border-width:2px; margin-right:6px;"></span> Generating Custom Assignment...';
           genBtn.disabled = true;
           
-          setTimeout(() => {
-            const skills = candidate.matched_skills.slice(0, 3).join(', ') || 'Core Technologies';
-            const assignment = `### AI-Generated Technical Assessment\n\n**Candidate:** ${candidate.name.replace(/\.(pdf|docx)$/i, '')}\n**Target Skills:** ${skills}\n\n**Scenario:**\nWe are experiencing rapid scale. Using your expertise in ${skills}, design and implement a scalable microservice that ingests 10,000 requests per minute, processes them asynchronously, and returns a calculated result.\n\n**Requirements:**\n1. Implement the core logic.\n2. Ensure it is containerized (Dockerfile).\n3. Provide unit tests.\n\n**Estimated Time:** 3 Hours`;
-            
-            assignOut.textContent = assignment;
-            assignOut.style.display = 'block';
-            genBtn.style.display = 'none';
-          }, 1200); // Simulate AI generation delay
+          try {
+            const res = await fetch('/generate-assignment', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                candidate_name: candidate.name,
+                roles: candidate.entities?.job_roles || [],
+                matched_skills: candidate.matched_skills || [],
+                missing_skills: candidate.missing_skills || [],
+                provable_years: candidate.timeline_audit?.provable_years || 0
+              })
+            });
+            const data = await res.json();
+            if (res.ok && data.assignment) {
+              assignOut.innerHTML = `
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; gap:8px;">
+                  <strong style="color:var(--accent);">AI Tailored Take-Home Assessment</strong>
+                  <button type="button" class="copy-assignment-btn secondary-btn" style="padding:4px 8px; font-size:0.75rem; background:rgba(30,30,45,0.8);">📋 Copy Assessment</button>
+                </div>
+                <div class="assignment-text" style="white-space:pre-wrap; font-size:0.85rem; line-height:1.5;">${escapeHtml(data.assignment)}</div>
+              `;
+              assignOut.style.display = 'block';
+              genBtn.style.display = 'none';
+
+              const copyBtn = assignOut.querySelector('.copy-assignment-btn');
+              if (copyBtn) {
+                copyBtn.addEventListener('click', () => {
+                  navigator.clipboard.writeText(data.assignment).then(() => {
+                    copyBtn.textContent = '✅ Copied!';
+                    setTimeout(() => { copyBtn.textContent = '📋 Copy Assessment'; }, 2000);
+                  }).catch(() => {
+                    const ta = document.createElement('textarea');
+                    ta.value = data.assignment;
+                    document.body.appendChild(ta);
+                    ta.select();
+                    document.execCommand('copy');
+                    document.body.removeChild(ta);
+                    copyBtn.textContent = '✅ Copied!';
+                    setTimeout(() => { copyBtn.textContent = '📋 Copy Assessment'; }, 2000);
+                  });
+                });
+              }
+            } else {
+              alert(data.error || 'Failed to generate assignment.');
+              genBtn.disabled = false;
+              genBtn.textContent = 'Generate Custom AI Take-Home Assignment';
+            }
+          } catch (e) {
+            console.error(e);
+            alert('Error generating assignment: ' + e.message);
+            genBtn.disabled = false;
+            genBtn.textContent = 'Generate Custom AI Take-Home Assignment';
+          }
         });
       }
 
@@ -658,6 +716,9 @@
 
       animateCountUp(insertedCard.querySelector('.gauge-value'), 0, score, 900);
     });
+    if (typeof updateCompareButton === 'function') {
+      updateCompareButton();
+    }
   }
 
   function animateCountUp(element, start, end, duration) {
@@ -1039,14 +1100,33 @@
   }
 
   // =======================================================================
-  // SHORTLIST & EMAIL
+  // SHORTLIST & EMAIL & COMPARISON COUNTER
   // =======================================================================
+  function updateCompareButton() {
+    if (!compareBtn) return;
+    const selected = document.querySelectorAll('.shortlist-checkbox:checked').length;
+    if (selected > 1) {
+      compareBtn.textContent = `Compare (${selected})`;
+    } else {
+      compareBtn.textContent = 'Compare Candidates';
+    }
+  }
+
+  if (resultsList) {
+    resultsList.addEventListener('change', (e) => {
+      if (e.target && e.target.classList.contains('shortlist-checkbox')) {
+        updateCompareButton();
+      }
+    });
+  }
+
   if (selectAllBtn) {
     selectAllBtn.addEventListener('click', () => {
         const checkboxes = document.querySelectorAll('.shortlist-checkbox');
         let allChecked = true;
         checkboxes.forEach(cb => { if (!cb.checked) allChecked = false; });
         checkboxes.forEach(cb => { cb.checked = !allChecked; });
+        updateCompareButton();
     });
   }
 
@@ -1147,6 +1227,18 @@
             html += '</div>';
           }
           emailResult.innerHTML = html;
+
+          // Auto-move emailed candidates to Shortlisted column in Kanban pipeline
+          const shortlistedZone = document.querySelector('.kanban-column[data-status="shortlisted"] .kanban-dropzone');
+          selected.forEach(s => {
+            const cand = lastCandidates.find(c => c.name.replace(/\.(pdf|docx)$/i, '') === s.name || c.name === s.name);
+            if (cand) cand.stage = 'shortlisted';
+            const card = Array.from(document.querySelectorAll('.kanban-card')).find(c => c.dataset.name === s.name || c.dataset.name.replace(/\.(pdf|docx)$/i, '') === s.name);
+            if (card && shortlistedZone && card.parentElement !== shortlistedZone) {
+              shortlistedZone.appendChild(card);
+            }
+          });
+          updateKanbanCounts();
         } else {
           emailResult.innerHTML = `<div class="email-error">Error: ${escapeHtml(data.error || 'Failed to send emails.')}</div>`;
         }
@@ -1166,12 +1258,11 @@
   // =======================================================================
   
   function renderKanbanBoard(candidates) {
-    const appliedZone = document.querySelector('.kanban-column[data-status="applied"] .kanban-dropzone');
-    const otherZones = document.querySelectorAll('.kanban-dropzone');
-    if (!appliedZone) return;
+    const columns = document.querySelectorAll('.kanban-column');
+    if (!columns.length) return;
     
     // Clear all zones
-    otherZones.forEach(z => { z.innerHTML = ''; });
+    document.querySelectorAll('.kanban-dropzone').forEach(z => { z.innerHTML = ''; });
     
     candidates.forEach(c => {
       const card = document.createElement('div');
@@ -1196,8 +1287,13 @@
       card.addEventListener('dragend', () => {
         card.style.opacity = '1';
       });
-      
-      appliedZone.appendChild(card);
+
+      const stage = (c.stage || 'applied').toLowerCase();
+      const targetZone = document.querySelector(`.kanban-column[data-status="${stage}"] .kanban-dropzone`) 
+                      || document.querySelector('.kanban-column[data-status="applied"] .kanban-dropzone');
+      if (targetZone) {
+        targetZone.appendChild(card);
+      }
     });
     
     updateKanbanCounts();
@@ -1212,7 +1308,7 @@
         zone.style.background = 'rgba(255,255,255,0.05)';
       });
       
-      zone.addEventListener('dragleave', (e) => {
+      zone.addEventListener('dragleave', () => {
         zone.style.background = 'transparent';
       });
       
@@ -1224,6 +1320,23 @@
         if (card) {
           zone.appendChild(card);
           updateKanbanCounts();
+
+          const newStage = zone.parentElement.dataset.status;
+          fetch('/api/candidate/stage', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              candidate_name: name,
+              stage: newStage
+            })
+          }).then(r => r.json()).then(data => {
+            if (data.success) {
+              const matchedCand = lastCandidates.find(c => c.name === name || c.name.replace(/\.(pdf|docx)$/i, '') === name);
+              if (matchedCand) matchedCand.stage = newStage;
+            }
+          }).catch(err => {
+            console.error('Failed to persist candidate stage:', err);
+          });
         }
       });
     });

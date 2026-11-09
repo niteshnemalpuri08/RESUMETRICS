@@ -63,10 +63,14 @@ ALIAS_MAP = {
     'react.js': 'reactjs',
     'vue.js': 'vuejs',
     'angular.js': 'angularjs',
+    'next.js': 'nextjs',
+    'nuxt.js': 'nuxtjs',
     'ci/cd': 'cicd',
     'ui/ux': 'uiux',
     'restful': 'rest',
-    'rest api': 'restapi'
+    'rest api': 'restapi',
+    'rest apis': 'restapi',
+    'scikit-learn': 'sklearn'
 }
 
 # ---------------------------------------------------------------------------
@@ -170,7 +174,7 @@ def _build_related_lookup(groups):
 RELATED_SKILLS_LOOKUP = _build_related_lookup(RELATED_SKILLS_GROUPS)
 
 COMBINED_ALIAS_PATTERN = re.compile(
-    r'(?<![a-zA-Z0-9])(?:c\+\+|c#|\.net|node\.js|react\.js|vue\.js|angular\.js|ci/cd|ui/ux|restful|rest api)(?![a-zA-Z0-9])',
+    r'(?<![a-zA-Z0-9])(?:c\+\+|c#|\.net|node\.js|react\.js|vue\.js|angular\.js|next\.js|nuxt\.js|ci/cd|ui/ux|restful|rest apis|rest api|scikit-learn)(?![a-zA-Z0-9])',
     re.IGNORECASE
 )
 
@@ -214,6 +218,34 @@ def _hash_text(text):
     return hashlib.sha256(text.encode('utf-8', errors='ignore')).hexdigest()
 
 
+def _extract_docx_xml(source):
+    """Fallback DOCX text extraction using Python standard library zipfile and xml.etree.
+    Guarantees DOCX resumes can always be parsed even if python-docx is unavailable.
+    """
+    import zipfile
+    import xml.etree.ElementTree as ET
+    paras = []
+    try:
+        # If source is a stream and has been partially read, seek to beginning
+        if hasattr(source, 'seek'):
+            source.seek(0)
+        with zipfile.ZipFile(source) as zf:
+            if 'word/document.xml' in zf.namelist():
+                xml_content = zf.read('word/document.xml')
+                tree = ET.fromstring(xml_content)
+                for p in tree.iter():
+                    if p.tag.endswith('}p') or p.tag == 'p':
+                        txt = ''.join(
+                            n.text for n in p.iter()
+                            if (n.tag.endswith('}t') or n.tag == 't') and n.text
+                        )
+                        if txt.strip():
+                            paras.append(txt.strip())
+    except Exception as e:
+        print(f"Notice during XML docx extraction: {e}")
+    return paras
+
+
 # ---------------------------------------------------------------------------
 # High-Speed In-Memory & File Text Extraction
 # ---------------------------------------------------------------------------
@@ -244,10 +276,13 @@ def extract_text(file_source, file_type):
                             text.append(extracted)
         elif file_type == 'docx':
             if USE_DOCX:
-                doc = Document(source)
-                text = [p.text for p in doc.paragraphs if p.text]
+                try:
+                    doc = Document(source)
+                    text = [p.text for p in doc.paragraphs if p.text]
+                except Exception:
+                    text = _extract_docx_xml(source)
             else:
-                raise ValueError("python-docx is not installed")
+                text = _extract_docx_xml(source)
         else:
             raise ValueError(f"Unsupported file type: .{file_type}")
     except Exception as e:
@@ -453,22 +488,19 @@ def compute_rrf_scores(tfidf_scores, dense_scores, job_skills=None, cleaned_resu
 # ---------------------------------------------------------------------------
 DEGREE_PATTERN = re.compile(
     r'\b('
-    r'(?:Bachelor|Master|Doctor|Associate)(?:\'s)?\s+(?:of\s+)?(?:Science|Arts|Engineering|Technology|Business|Administration|Computer\s+Science|Information\s+Technology|Commerce|Law|Medicine|Education|Fine\s+Arts|Design|Philosophy)'
-    r'|B\.?\s*(?:Tech|Sc|E|A|Com|Arch|Des|Pharm|Ed)'
-    r'|M\.?\s*(?:Tech|Sc|E|A|Com|BA|CA|Phil|Des|Pharm|Ed|S)'
-    r'|Ph\.?\s*D\.?'
-    r'|MBA|BBA|BCA|MCA|BE|ME|BSc|MSc|BA|MA'
+    r'B\.?\s*S\.?|M\.?\s*S\.?|Ph\.?\s*D\.?|B\.?\s*Tech\.?|M\.?\s*Tech\.?|B\.?\s*E\.?|M\.?\s*E\.?|B\.?\s*A\.?|M\.?\s*A\.?|BSc|MSc|BS|MS|MBA|BBA|BCA|MCA|PhD|BE|ME'
+    r'|(?:Bachelor|Master|Doctor|Associate)(?:\'s)?(?:\s+(?:of|in))?\s+(?:Science|Arts|Engineering|Technology|Business|Administration|Computer\s+Science|Information\s+Technology|Commerce|Law|Medicine|Education|Fine\s+Arts|Design|Philosophy)'
     r'|Diploma(?:\s+in\s+[\w\s]{3,30})?'
     r'|(?:12th|10th|HSC|SSC|CBSE|ICSE|ISC|IB)'
-    r')\b',
+    r')(?:\.|\b)',
     re.IGNORECASE
 )
 
 UNIVERSITY_PATTERN = re.compile(
     r'(?:'
-    r'(?:University|Institute|College|School|Academy)\s+of\s+[\w\s]{3,40}'
+    r'(?:University|Institute|College|School|Academy)\s+of\s+[A-Za-z][\w\s]{2,35}'
     r'|(?:IIT|NIT|IIIT|BITS|VIT|SRM|MIT|KIIT|Amity|Manipal|Stanford|Harvard|Oxford|Cambridge|Berkeley|Cornell|CMU|Caltech|Princeton|Yale|Columbia|Georgia\s+Tech|UCLA|USC|NYU|Purdue)\b[\w\s]{0,20}'
-    r'|[\w\s]{3,30}(?:University|Institute|College|Polytechnic)'
+    r'|[A-Za-z][\w\s]{2,25}(?:University|Institute|College|Polytechnic)'
     r')',
     re.IGNORECASE
 )
@@ -527,9 +559,13 @@ def extract_entities(resume_text):
     degrees = list({m.group(0).strip() for m in DEGREE_PATTERN.finditer(text)})
 
     # Extract unique universities
-    universities = list({m.group(0).strip() for m in UNIVERSITY_PATTERN.finditer(text)})
-    # Filter very short matches
-    universities = [u for u in universities if len(u) > 5]
+    raw_universities = list({m.group(0).strip() for m in UNIVERSITY_PATTERN.finditer(text)})
+    cleaned_unis = []
+    for u in raw_universities:
+        clean_u = re.sub(r'^(?:graduated\s+from|from|at|in)\s+', '', u.strip(), flags=re.IGNORECASE).strip()
+        if len(clean_u) > 5 and not clean_u.lower().startswith(('the ', 'a ')):
+            cleaned_unis.append(clean_u)
+    universities = list(dict.fromkeys(cleaned_unis))
 
     # Extract unique job roles
     roles = list({m.group(0).strip() for m in JOB_ROLE_PATTERN.finditer(text)})
@@ -577,10 +613,23 @@ def extract_entities(resume_text):
 # ---------------------------------------------------------------------------
 EMAIL_PATTERN = re.compile(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}')
 PHONE_PATTERN = re.compile(r'(?:\+\d{1,3}[-.\s]?)?(?:\(\d{2,4}\)[-.\s]?)?\b\d{3,5}[-.\s]?\d{3,5}(?:[-.\s]?\d{3,5})?\b')
-CLAIMED_EXP_PATTERN = re.compile(r'(\d+)\+?\s*years?\s*(?:of)?\s*(?:experience|exp)', re.IGNORECASE)
-DATE_RANGE_PATTERN = re.compile(r'([a-zA-Z]{3,9})\s*(\d{4})\s*[-–—to]+\s*([a-zA-Z]{3,9}|\bpresent\b|\bcurrent\b)?\s*(\d{4})?', re.IGNORECASE)
-SPLIT_PHRASES_PATTERN = re.compile(r'[,\n;•|/&]+|\band\b|\bor\b')
-FLUFF_PATTERN = re.compile(r'looking for a|looking for|we need|developer with|experience for|experience in|years of|years|strong knowledge in|proficiency in|must have', re.IGNORECASE)
+CLAIMED_EXP_PATTERN = re.compile(r'(?:over\s+|more\s+than\s+)?(\d+)\+?\s*years?\s*(?:of)?\s*(?:[\w\s]{0,25})?(?:experience|exp)', re.IGNORECASE)
+MONTH_REGEX_STR = r'(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)'
+DATE_RANGE_PATTERN = re.compile(
+    rf'(?:({MONTH_REGEX_STR})[\s/,\.-]+)?(\b20\d\d|\b19\d\d)\s*(?:-|–|—|to)\s*(?:({MONTH_REGEX_STR})[\s/,\.-]+)?(\b20\d\d|\b19\d\d|\bpresent\b|\bcurrent\b)',
+    re.IGNORECASE
+)
+NUMERIC_DATE_RANGE_PATTERN = re.compile(
+    r'\b(0?[1-9]|1[0-2])/(20\d\d|19\d\d)\s*(?:-|–|—|to)\s*(?:(0?[1-9]|1[0-2])/)?(20\d\d|19\d\d|\bpresent\b|\bcurrent\b)\b',
+    re.IGNORECASE
+)
+SPLIT_PHRASES_PATTERN = re.compile(r'[,\n;•|/&]+|\band\b|\bor\b|\bwith\b|\bincluding\b')
+FLUFF_PATTERN = re.compile(
+    r'looking for a|looking for|we need|developer with|experience for|experience in|years of|years'
+    r'|strong knowledge in|proficiency in|must have|expertise in|knowledge of|familiarity with'
+    r'|experience with|understanding of|background in|hands-on|proven track record|track record',
+    re.IGNORECASE
+)
 
 GENERIC_NOISE_WORDS = {
     'experience', 'years', 'year', 'work', 'working', 'strong', 'good',
@@ -600,14 +649,26 @@ def _extract_skill_phrases(text):
     if not text:
         return set()
     cleaned = FLUFF_PATTERN.sub(',', text.lower())
+    # Standardize aliases BEFORE splitting on delimiters like '/' so CI/CD and UI/UX are preserved
+    cleaned = COMBINED_ALIAS_PATTERN.sub(
+        lambda m: ALIAS_MAP.get(m.group(0).lower(), m.group(0).lower()),
+        cleaned
+    )
     raw_phrases = SPLIT_PHRASES_PATTERN.split(cleaned)
     phrases = set()
 
     for phrase in raw_phrases:
         cleaned_phrase = clean_text(phrase).strip()
         if cleaned_phrase:
+            # Strip trailing noise words from multi-word phrases
+            # e.g. "nodejs experience" → "nodejs"
             words = cleaned_phrase.split()
-            if 1 <= len(words) <= 3 and cleaned_phrase not in GENERIC_NOISE_WORDS:
+            while words and words[-1] in GENERIC_NOISE_WORDS:
+                words.pop()
+            while words and words[0] in GENERIC_NOISE_WORDS:
+                words.pop(0)
+            cleaned_phrase = ' '.join(words)
+            if cleaned_phrase and 1 <= len(words) <= 3 and cleaned_phrase not in GENERIC_NOISE_WORDS:
                 phrases.add(cleaned_phrase)
     return phrases
 
@@ -685,18 +746,19 @@ def extract_contact_info(resume_text):
     return {"email": email, "phone": phone}
 
 
-def analyze_career_velocity(resume_text, job_roles):
+def analyze_career_velocity(resume_text, job_roles, precomputed_timeline=None):
     """Detects 'Fast Trackers' based on role progressions or timeframes."""
     is_fast_tracker = False
     velocity_notes = "Normal progression."
     
-    # Simple heuristic: If they have 'Senior', 'Lead', or 'Manager' but under 4 years of provable experience
-    senior_roles = [r for r in job_roles if 'senior' in r.lower() or 'lead' in r.lower() or 'manager' in r.lower()]
+    # Simple heuristic: If they have 'Senior', 'Lead', 'Manager', or 'Architect' with <= 4 years provable experience
+    senior_roles = [r for r in job_roles if any(k in r.lower() for k in ('senior', 'lead', 'manager', 'architect', 'principal', 'staff', 'head', 'director'))]
     if senior_roles:
-        timeline = audit_experience_timeline(resume_text)
-        if 0 < timeline['provable_years'] <= 4:
+        timeline = precomputed_timeline if precomputed_timeline is not None else audit_experience_timeline(resume_text)
+        provable = timeline.get('provable_years', 0)
+        if 0 < provable <= 4:
             is_fast_tracker = True
-            velocity_notes = f"Fast Tracker: Reached {senior_roles[0]} in ~{timeline['provable_years']} years."
+            velocity_notes = f"Fast Tracker: Reached {senior_roles[0]} in ~{provable} years."
             
     return {"is_fast_tracker": is_fast_tracker, "velocity_notes": velocity_notes}
 
@@ -735,30 +797,191 @@ def generate_outreach_email(candidate_name, score, matched, missing):
         return f"Hi {first_name},\n\nThank you for applying. While your experience with {matched[0] if matched else 'certain tools'} is notable, we are heavily focused on {missing[0] if missing else 'other core skills'} at this time. We will keep your resume on file for future opportunities.\n\nBest,\n[Your Name]"
 
 
+CLICHE_PATTERNS = [
+    'team player', 'hard worker', 'results driven', 'results-driven',
+    'go getter', 'go-getter', 'detail oriented', 'detail-oriented',
+    'self starter', 'self-starter', 'think outside the box',
+    'fast learner', 'dynamic professional', 'hardworking', 'enthusiastic',
+    'synergy', 'proactive approach', 'proven track record'
+]
+
+WEAK_OPENERS = re.compile(
+    r'^(?:(?:was\s+)?responsible\s+for|worked\s+on|helped\s+(?:with|to)|assisted\s+(?:in|with)|'
+    r'handled|participated\s+in|involved\s+in|contributed\s+to|did|tasked\s+with|aimed\s+to|'
+    r'created|built|made|wrote|developed|designed)\s+',
+    re.IGNORECASE
+)
+
+
+def audit_ats_formatting(resume_text, contact_info, entities):
+    """Comprehensive ATS pre-flight formatting and parsability audit."""
+    words = len(resume_text.split())
+    if words < 250:
+        wc_status = 'Under-detailed (<250 words) — Risk of missing key ATS skill triggers'
+        wc_score = 60
+    elif words > 1200:
+        wc_status = 'Overly Dense (>1200 words) — Consider trimming to 2 concise pages'
+        wc_score = 75
+    else:
+        wc_status = 'Optimal ATS Length (450–900 words) — Ideal keyword-to-page ratio'
+        wc_score = 100
+
+    contact = contact_info or {}
+    c_items = 0
+    if contact.get('email'): c_items += 1
+    if contact.get('phone'): c_items += 1
+    if contact.get('linkedin'): c_items += 1
+    if contact.get('github'): c_items += 1
+    contact_score = round((c_items / 4) * 100)
+
+    found_cliches = []
+    text_lower = resume_text.lower()
+    for c in CLICHE_PATTERNS:
+        if c in text_lower:
+            found_cliches.append(c)
+
+    ents = entities or {}
+    metrics = ents.get('metrics', [])
+    metric_density = 'High' if len(metrics) >= 4 else 'Moderate' if len(metrics) >= 2 else 'Low'
+
+    score = round(
+        (wc_score * 0.3) +
+        (contact_score * 0.3) +
+        (100 if metric_density == 'High' else 75 if metric_density == 'Moderate' else 50) * 0.3 +
+        (max(0, 100 - len(found_cliches) * 15)) * 0.1
+    )
+
+    return {
+        'ats_health_score': min(100, max(20, score)),
+        'word_count': words,
+        'word_count_status': wc_status,
+        'contact_completeness_score': contact_score,
+        'contact_checks': {
+            'email': bool(contact.get('email')),
+            'phone': bool(contact.get('phone')),
+            'linkedin': bool(contact.get('linkedin')),
+            'github': bool(contact.get('github'))
+        },
+        'cliches_detected': found_cliches,
+        'metrics_density': metric_density,
+        'metrics_count': len(metrics),
+        'action_verbs_count': len(ents.get('action_verbs', []))
+    }
+
+
+def optimize_resume_bullet(raw_bullet, target_role=None):
+    """Transforms a weak/standard resume bullet into 3 high-impact executive variations."""
+    if not raw_bullet or not raw_bullet.strip():
+        return []
+    clean = re.sub(r'^[•\-\*\d\.\)\s]+', '', raw_bullet.strip()).rstrip('.')
+    core = WEAK_OPENERS.sub('', clean).strip()
+    if not core:
+        core = clean
+
+    cap_core = core[0].lower() + core[1:] if len(core) > 1 else core.lower()
+
+    return [
+        {
+            'type': 'Google XYZ Impact Formula',
+            'tag': 'Metric-Driven',
+            'formula': 'Accomplished [X] measured by [Y] by doing [Z]',
+            'text': f'Engineered high-throughput architecture for {cap_core}, driving a 35% improvement in execution speed and scaling service capacity to 100k+ users.',
+            'benefit': 'Quantifies exact business impact and engineering efficiency.'
+        },
+        {
+            'type': 'Senior Engineering Ownership',
+            'tag': 'Leadership & Strategy',
+            'formula': 'Spearheaded [Initiative] aligning [Team] to achieve [Outcome]',
+            'text': f'Spearheaded technical execution for {cap_core}, partnering across product and engineering to accelerate feature deployment velocity by 25%.',
+            'benefit': 'Demonstrates cross-functional leadership and initiative.'
+        },
+        {
+            'type': 'Technical Rigor & Resilience',
+            'tag': 'Systems Design',
+            'formula': 'Architected [System] with [Best Practices] eliminating [Failure Mode]',
+            'text': f'Architected resilient microservice workflows for {cap_core}, integrating automated CI/CD validation and achieving 99.95% production uptime.',
+            'benefit': 'Signals production reliability and architectural depth.'
+        }
+    ]
+
+
+def generate_tailored_cover_letter(candidate_name, matched_skills, missing_skills, provable_years=0, job_roles=None, job_description=None):
+    """Constructs a tailored, executive 3-paragraph cover letter based on parsed resume intelligence."""
+    clean_name = candidate_name.replace('.pdf', '').replace('.docx', '').replace('_', ' ').strip()
+    primary_role = job_roles[0] if (job_roles and len(job_roles) > 0) else 'Software Engineer'
+    top_skills = ', '.join(matched_skills[:4]) if matched_skills else 'modern software engineering principles and full-stack development'
+    years_text = f'over {provable_years} years of proven industry experience' if provable_years > 1 else 'hands-on technical background'
+
+    p1 = f"Dear Hiring Team,\n\nI am writing to express my enthusiastic interest in the {primary_role} opportunity at your organization. With {years_text} designing, scaling, and maintaining mission-critical applications, I offer deep technical fluency across {top_skills}. Your team's commitment to technical excellence and user-centric systems strongly aligns with my professional background."
+
+    p2 = f"Throughout my engineering career, I have focused on building performant, scalable, and resilient software solutions. Leveraging expertise in {top_skills}, I have consistently translated complex architectural requirements into reliable production services while optimizing execution throughput and code quality. Furthermore, I thrive in collaborative agile environments where engineering rigor and rapid iterative delivery intersect."
+
+    p3 = "I welcome the opportunity to discuss how my technical expertise, problem-solving mindset, and dedication to high-quality code can contribute directly to your engineering team's ongoing success. Thank you for your time and consideration.\n\nSincerely,\n" + clean_name
+
+    return f"{p1}\n\n{p2}\n\n{p3}"
+
+
+
 def audit_experience_timeline(resume_text):
     claimed_match = CLAIMED_EXP_PATTERN.search(resume_text)
     claimed_years = int(claimed_match.group(1)) if claimed_match else None
 
-    matches = DATE_RANGE_PATTERN.findall(resume_text)
-    total_months = 0
     now = datetime.datetime.now()
+    intervals = []
 
-    for start_m, start_y, end_m, end_y in matches:
+    # 1. Textual month/year ranges: 'Jan 2019 - Present', '2018 - 2023', etc.
+    for match in DATE_RANGE_PATTERN.finditer(resume_text):
         try:
-            s_m = MONTH_MAP.get(start_m.lower(), 1)
+            start_m, start_y, end_m, end_y = match.groups()
+            s_m = MONTH_MAP.get(start_m.lower(), 1) if start_m else 1
             s_y = int(start_y)
-            if end_m.lower() in ['present', 'current'] or not end_y:
-                e_m, e_y = now.month, now.year
-            else:
-                e_m = MONTH_MAP.get(end_m.lower(), 12)
-                e_y = int(end_y)
 
-            months = (e_y - s_y) * 12 + (e_m - s_m)
-            if 0 < months < 600:
-                total_months += months
+            if not end_y or (end_m and end_m.lower() in ('present', 'current')) or (end_y and end_y.lower() in ('present', 'current')):
+                e_m, e_y = now.month, now.year
+            elif end_y.isdigit():
+                e_y = int(end_y)
+                e_m = MONTH_MAP.get(end_m.lower(), 12) if end_m else 12
+            else:
+                continue
+
+            s_total = s_y * 12 + s_m
+            e_total = e_y * 12 + e_m
+            if 0 < (e_total - s_total) < 600:
+                intervals.append((s_total, e_total))
         except Exception:
             continue
 
+    # 2. Numeric date ranges: '01/2018 - 05/2023', '01/2019 - Present'
+    for match in NUMERIC_DATE_RANGE_PATTERN.finditer(resume_text):
+        try:
+            s_m_str, s_y_str, e_m_str, e_y_str = match.groups()
+            s_m = int(s_m_str)
+            s_y = int(s_y_str)
+
+            if e_y_str.lower() in ('present', 'current'):
+                e_m, e_y = now.month, now.year
+            elif e_y_str.isdigit():
+                e_y = int(e_y_str)
+                e_m = int(e_m_str) if e_m_str else 12
+            else:
+                continue
+
+            s_total = s_y * 12 + s_m
+            e_total = e_y * 12 + e_m
+            if 0 < (e_total - s_total) < 600:
+                intervals.append((s_total, e_total))
+        except Exception:
+            continue
+
+    # Merge overlapping employment intervals so concurrent positions are not double-counted
+    merged = []
+    for start, end in sorted(intervals, key=lambda x: x[0]):
+        if not merged or merged[-1][1] < start:
+            merged.append([start, end])
+        else:
+            merged[-1][1] = max(merged[-1][1], end)
+
+    total_months = sum(end - start for start, end in merged)
     provable_years = round(total_months / 12.0, 1)
     timeline_alert = False
     alert_reason = ""
@@ -840,19 +1063,22 @@ def build_candidate_report(filename, resume_text, cleaned_resume, job_skills, sc
         "tfidf_score": tfidf_score,
         "dense_score": dense_score,
         "skill_match_score": skill_match_score,
+        "stage": "applied",
         "contact": contact_info,
         "matched_skills": skill_insights["matched_skills"],
         "related_skills": skill_insights.get("related_skills", []),
         "missing_skills": skill_insights["missing_skills"][:5],
         "entities": entities,
         "soft_skills_profile": profile_soft_skills(entities.get("soft_skills", []), resume_text),
-        "velocity_analysis": analyze_career_velocity(resume_text, entities.get("job_roles", [])),
+        "velocity_analysis": analyze_career_velocity(resume_text, entities.get("job_roles", []), precomputed_timeline=timeline_audit),
         "culture_fit": analyze_culture_fit(resume_text),
         "salary_prediction": predict_salary(entities.get("job_roles", []), timeline_audit.get("provable_years", 0)),
         "timeline_audit": timeline_audit,
         "tldr_summary": generate_tldr_summary(score, skill_insights["matched_skills"], skill_insights["missing_skills"], timeline_audit),
         "interview_questions": generate_interview_questions(skill_insights["matched_skills"], skill_insights["missing_skills"], timeline_audit),
-        "outreach_email": generate_outreach_email(filename, score, skill_insights["matched_skills"], skill_insights["missing_skills"])
+        "outreach_email": generate_outreach_email(filename, score, skill_insights["matched_skills"], skill_insights["missing_skills"]),
+        "ats_health_audit": audit_ats_formatting(resume_text, contact_info, entities),
+        "cover_letter": generate_tailored_cover_letter(filename, skill_insights["matched_skills"], skill_insights["missing_skills"], timeline_audit.get("provable_years", 0), entities.get("job_roles", []))
     }
 
 def generate_tldr_summary(score, matched, missing, timeline_audit):

@@ -7,6 +7,9 @@ resumetrics.db
 ResuMetrics_Project_Summary.pdf
 ResuMetrics_Workflow.pdf
 PROJECT_DOCUMENTATION.md
+MINOR_PROJECT_REPORT.md
+ResuMetrics_Minor_Project_Report.pdf
+test_app.py
 generate_samples.py
 generate_summary.py
 generate_workflow.py
