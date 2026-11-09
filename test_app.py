@@ -585,6 +585,76 @@ class TestFlaskApp(unittest.TestCase):
         self.assertIn('ats_health_audit', candidate)
         self.assertIn('cover_letter', candidate)
 
+    def test_forgot_password_page_loads(self):
+        """GET /forgot-password should render forgot password template."""
+        resp = self.client.get('/forgot-password')
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn(b'Reset your password', resp.data)
+
+    def test_forgot_password_submission_existing_user(self):
+        """POST /forgot-password with registered user should generate reset link."""
+        self.client.post('/register', data={
+            'full_name': 'Test Reset User',
+            'email': 'reset_test@example.com',
+            'password': 'Password123!',
+            'confirm_password': 'Password123!',
+            'role': 'recruiter'
+        })
+        self.client.get('/logout')
+
+        resp = self.client.post('/forgot-password', data={
+            'email': 'reset_test@example.com'
+        })
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn(b'reset-password', resp.data)
+
+    def test_reset_password_flow(self):
+        """Full password reset flow from token generation to updated login."""
+        from app import get_password_reset_serializer
+
+        self.client.post('/register', data={
+            'full_name': 'Flow User',
+            'email': 'flow_test@example.com',
+            'password': 'OldPassword123!',
+            'confirm_password': 'OldPassword123!',
+            'role': 'recruiter'
+        })
+        self.client.get('/logout')
+
+        serializer = get_password_reset_serializer()
+        token = serializer.dumps('flow_test@example.com', salt='resumetrics-password-reset')
+
+        resp_get = self.client.get(f'/reset-password/{token}')
+        self.assertEqual(resp_get.status_code, 200)
+        self.assertIn(b'Create new password', resp_get.data)
+
+        resp_mismatch = self.client.post(f'/reset-password/{token}', data={
+            'password': 'NewPassword123!',
+            'confirm_password': 'DifferentPassword456!'
+        })
+        self.assertEqual(resp_mismatch.status_code, 200)
+        self.assertIn(b'Passwords do not match', resp_mismatch.data)
+
+        resp_post = self.client.post(f'/reset-password/{token}', data={
+            'password': 'NewPassword123!',
+            'confirm_password': 'NewPassword123!'
+        }, follow_redirects=True)
+        self.assertEqual(resp_post.status_code, 200)
+        self.assertIn(b'successfully reset', resp_post.data)
+
+        login_resp = self.client.post('/login', data={
+            'email': 'flow_test@example.com',
+            'password': 'NewPassword123!'
+        }, follow_redirects=True)
+        self.assertEqual(login_resp.status_code, 200)
+        self.assertIn(b'Flow User', login_resp.data)
+
+    def test_reset_password_invalid_token(self):
+        """Invalid token should redirect to forgot-password with error."""
+        resp = self.client.get('/reset-password/totally-invalid-token', follow_redirects=True)
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn(b'Invalid or tampered', resp.data)
+
 
 
 if __name__ == '__main__':

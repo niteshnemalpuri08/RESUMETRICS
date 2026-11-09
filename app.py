@@ -19,6 +19,7 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from concurrent.futures import ThreadPoolExecutor
 from flask import Flask, render_template, request, jsonify, send_file, session, redirect, url_for, flash
+from itsdangerous import URLSafeTimedSerializer, SignatureExpired, BadSignature
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
@@ -507,6 +508,155 @@ def privacy():
 @app.route('/terms')
 def terms():
     return render_template('terms.html')
+
+
+def get_password_reset_serializer():
+    """Generates cryptographic URL-safe serializer for password reset tokens."""
+    return URLSafeTimedSerializer(app.secret_key)
+
+
+def send_password_reset_email(to_email, user_name, reset_url):
+    """Sends password reset email via SMTP if configured, or logs locally."""
+    smtp_email = os.environ.get('SMTP_EMAIL', '').strip()
+    smtp_password = os.environ.get('SMTP_PASSWORD', '').strip()
+    smtp_host = os.environ.get('SMTP_HOST', 'smtp.gmail.com').strip()
+    smtp_port = int(os.environ.get('SMTP_PORT', 587))
+
+    if not smtp_email or not smtp_password:
+        logger.info(f"[Password Reset] Link generated for {to_email}: {reset_url} (SMTP not configured, simulation active)")
+        return True
+
+    try:
+        msg = MIMEMultipart('alternative')
+        msg['Subject'] = 'ResuMetrics - Password Reset Request'
+        msg['From'] = f"ResuMetrics Security <{smtp_email}>"
+        msg['To'] = to_email
+
+        text_content = f"""Hello {user_name or 'User'},
+
+We received a request to reset your password for your ResuMetrics account.
+
+Click the link below to set a new password (valid for 1 hour):
+{reset_url}
+
+If you did not make this request, you can safely ignore this email.
+
+Best regards,
+The ResuMetrics Team
+"""
+        html_content = f"""
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #0f172a; color: #f8fafc; border-radius: 8px;">
+            <h2 style="color: #38bdf8; margin-top: 0;">ResuMetrics Password Reset</h2>
+            <p>Hello <strong>{user_name or 'User'}</strong>,</p>
+            <p>We received a request to reset your password. Click the button below to choose a new password (this link expires in 1 hour):</p>
+            <div style="text-align: center; margin: 30px 0;">
+                <a href="{reset_url}" style="background: linear-gradient(135deg, #0284c7, #2563eb); color: #ffffff; text-decoration: none; padding: 12px 28px; border-radius: 6px; font-weight: bold; display: inline-block;">Reset Password</a>
+            </div>
+            <p style="color: #94a3b8; font-size: 13px;">Or copy and paste this link into your browser:<br><a href="{reset_url}" style="color: #38bdf8;">{reset_url}</a></p>
+            <hr style="border: 0; border-top: 1px solid #334155; margin: 25px 0;">
+            <p style="color: #64748b; font-size: 12px;">If you did not request a password reset, please ignore this email. Your password will remain unchanged.</p>
+        </div>
+        """
+        msg.attach(MIMEText(text_content, 'plain'))
+        msg.attach(MIMEText(html_content, 'html'))
+
+        if smtp_port == 465:
+            server = smtplib.SMTP_SSL(smtp_host, smtp_port, timeout=10)
+        else:
+            server = smtplib.SMTP(smtp_host, smtp_port, timeout=10)
+            server.starttls()
+        server.login(smtp_email, smtp_password)
+        server.sendmail(smtp_email, to_email, msg.as_string())
+        server.quit()
+        return True
+    except Exception as e:
+        logger.warning(f"Failed to send password reset email via SMTP ({e}). Fallback simulated.")
+        return False
+
+
+@app.route('/forgot-password', methods=['GET', 'POST'])
+def forgot_password():
+    """Allows users to request a secure, time-stamped password reset token."""
+    if 'user_id' in session and session.get('user_id') not in (998, 999):
+        return redirect(url_for('dashboard'))
+
+    reset_url = None
+    if request.method == 'POST':
+        email = request.form.get('email', '').strip().lower()
+        if not email:
+            flash('Please enter your email address.', 'error')
+            return render_template('forgot_password.html')
+
+        try:
+            conn = get_db_connection()
+            cursor = conn.cursor()
+            cursor.execute('SELECT id, full_name FROM users WHERE email = %s', (email,))
+            user = cursor.fetchone()
+            conn.close()
+
+            if user:
+                serializer = get_password_reset_serializer()
+                token = serializer.dumps(email, salt='resumetrics-password-reset')
+                reset_url = url_for('reset_password', token=token, _external=True)
+
+                send_password_reset_email(email, user[1], reset_url)
+
+                flash('Password reset link generated. Check your inbox or use the instant reset link below.', 'success')
+            else:
+                flash('If an account exists with that email address, a password reset link has been created.', 'info')
+        except Exception as e:
+            flash(f'An error occurred: {e}', 'error')
+
+    return render_template('forgot_password.html', reset_url=reset_url)
+
+
+@app.route('/reset-password/<token>', methods=['GET', 'POST'])
+def reset_password(token):
+    """Verifies reset token and updates the user's password."""
+    if 'user_id' in session and session.get('user_id') not in (998, 999):
+        return redirect(url_for('dashboard'))
+
+    serializer = get_password_reset_serializer()
+    try:
+        email = serializer.loads(token, salt='resumetrics-password-reset', max_age=3600)
+    except SignatureExpired:
+        flash('The password reset link has expired (1 hour limit). Please request a new one.', 'error')
+        return redirect(url_for('forgot_password'))
+    except BadSignature:
+        flash('Invalid or tampered password reset link. Please request a new one.', 'error')
+        return redirect(url_for('forgot_password'))
+
+    if request.method == 'POST':
+        password = request.form.get('password', '')
+        confirm_password = request.form.get('confirm_password', '')
+
+        if not password or not confirm_password:
+            flash('Please fill in both password fields.', 'error')
+            return render_template('reset_password.html', token=token, email=email)
+
+        if len(password) < 6:
+            flash('Password must be at least 6 characters long.', 'error')
+            return render_template('reset_password.html', token=token, email=email)
+
+        if password != confirm_password:
+            flash('Passwords do not match. Please verify and try again.', 'error')
+            return render_template('reset_password.html', token=token, email=email)
+
+        try:
+            password_hash = generate_password_hash(password)
+            conn = get_db_connection()
+            cursor = conn.cursor()
+            cursor.execute('UPDATE users SET password_hash = %s WHERE email = %s', (password_hash, email))
+            conn.commit()
+            conn.close()
+
+            flash('Your password has been successfully reset! You can now sign in with your new password.', 'success')
+            return redirect(url_for('login'))
+        except Exception as e:
+            flash(f'Failed to update password: {e}', 'error')
+            return render_template('reset_password.html', token=token, email=email)
+
+    return render_template('reset_password.html', token=token, email=email)
 
 @app.route('/register', methods=['GET', 'POST'])
 def register():
